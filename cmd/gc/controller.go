@@ -1314,6 +1314,7 @@ func runController(
 	cs.configDirty = configDirty
 	cs.services = cr.svc
 	cs.startBeadEventWatcher(ctx)
+	cs.startMaintenanceLoop(ctx)
 	cr.setControllerState(cs)
 
 	// Start API server if configured. Standalone city mode wraps the
