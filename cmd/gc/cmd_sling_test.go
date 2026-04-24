@@ -3850,7 +3850,10 @@ func TestDryRunIdempotentBead(t *testing.T) {
 	sp := runtime.NewFake()
 	cfg := &config.City{Workspace: config.Workspace{Name: "test-city"}}
 	a := config.Agent{Name: "mayor", MaxActiveSessions: intPtr(1)}
-	q := &fakeQuerier{bead: beads.Bead{ID: "BL-42", Title: "Login page", Assignee: "mayor", Status: "open"}}
+	q := &fakeQuerier{
+		bead:   beads.Bead{ID: "BL-42", Title: "Login page", ParentID: "CVY-1", Assignee: "mayor", Status: "open"},
+		parent: &beads.Bead{ID: "CVY-1", Type: "convoy", Status: "open"},
+	}
 
 	deps, stdout, stderr := testDeps(cfg, sp, runner.run)
 	opts := testOpts(a, "BL-42")
