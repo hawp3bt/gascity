@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/gastownhall/gascity/internal/fsys"
@@ -126,4 +127,135 @@ func TestRunDoltCleanup_FlagOverridesEverything(t *testing.T) {
 	if r.Port.Source != "--port flag" {
 		t.Errorf("Port.Source = %q", r.Port.Source)
 	}
+}
+
+func TestRunDoltCleanup_DryRunReportsReapPlanWithoutKilling(t *testing.T) {
+	fs := fsys.NewFake()
+	fs.Files["/city/.beads/dolt-server.port"] = []byte("28231\n")
+
+	procs := []DoltProcInfo{
+		{PID: 1138290, Ports: []int{28231}, Argv: []string{"dolt", "sql-server"}},
+		{PID: 1281044, Argv: []string{"dolt", "sql-server", "--config", "/tmp/TestA/config.yaml"}},
+		{PID: 1319499, Ports: []int{33400}, Argv: []string{"dolt", "sql-server", "--config", "/tmp/be-s9d-bench-dolt/config.yaml"}},
+	}
+	killed := []int{}
+
+	var stdout, stderr bytes.Buffer
+	opts := cleanupOptions{
+		Rigs:    []resolverRig{{Name: "hq", Path: "/city", HQ: true}},
+		FS:      fs,
+		JSON:    true,
+		Probe:   false,
+		HomeDir: "/home/u",
+		// Force not set → dry-run.
+		DiscoverProcesses: func() ([]DoltProcInfo, error) { return procs, nil },
+		KillProcess: func(pid int, _ syscall.Signal) error {
+			killed = append(killed, pid)
+			return nil
+		},
+	}
+	code := runDoltCleanup(opts, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit=%d, stderr=%s", code, stderr.String())
+	}
+	var r CleanupReport
+	if err := json.Unmarshal(stdout.Bytes(), &r); err != nil {
+		t.Fatalf("Unmarshal: %v\nstdout: %s", err, stdout.String())
+	}
+
+	if r.Reaped.Count != 1 {
+		t.Errorf("Reaped.Count = %d, want 1 (one orphan, dry-run)", r.Reaped.Count)
+	}
+	wantProtected := []int{1138290, 1319499}
+	if !equalIntSlice(r.Reaped.ProtectedPIDs, wantProtected) {
+		t.Errorf("ProtectedPIDs = %v, want %v", r.Reaped.ProtectedPIDs, wantProtected)
+	}
+	if len(killed) != 0 {
+		t.Errorf("KillProcess called %d times in dry-run; want 0 (dry-run is non-destructive)", len(killed))
+	}
+}
+
+func TestRunDoltCleanup_ForceKillsOrphans(t *testing.T) {
+	fs := fsys.NewFake()
+	fs.Files["/city/.beads/dolt-server.port"] = []byte("28231\n")
+
+	procs := []DoltProcInfo{
+		{PID: 1138290, Ports: []int{28231}, Argv: []string{"dolt", "sql-server"}},
+		{PID: 1281044, Argv: []string{"dolt", "sql-server", "--config", "/tmp/TestA/config.yaml"}},
+		{PID: 1281099, Argv: []string{"dolt", "sql-server", "--config", "/tmp/TestB/config.yaml"}},
+	}
+	var termed []int
+
+	var stdout, stderr bytes.Buffer
+	opts := cleanupOptions{
+		Rigs:              []resolverRig{{Name: "hq", Path: "/city", HQ: true}},
+		FS:                fs,
+		JSON:              true,
+		Force:             true,
+		HomeDir:           "/home/u",
+		DiscoverProcesses: func() ([]DoltProcInfo, error) { return procs, nil },
+		KillProcess: func(pid int, sig syscall.Signal) error {
+			if sig == syscall.SIGTERM {
+				termed = append(termed, pid)
+			}
+			return syscall.ESRCH // pretend the process is already gone after TERM
+		},
+		ReapGracePeriod: 1, // tiny so the test doesn't sleep meaningfully
+	}
+	code := runDoltCleanup(opts, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit=%d, stderr=%s", code, stderr.String())
+	}
+	var r CleanupReport
+	if err := json.Unmarshal(stdout.Bytes(), &r); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if r.Reaped.Count != 2 {
+		t.Errorf("Reaped.Count = %d, want 2", r.Reaped.Count)
+	}
+	wantTermed := []int{1281044, 1281099}
+	if !equalIntSlice(termed, wantTermed) {
+		t.Errorf("SIGTERM-ed PIDs = %v, want %v", termed, wantTermed)
+	}
+}
+
+func TestRunDoltCleanup_ForceRecordsKillError(t *testing.T) {
+	procs := []DoltProcInfo{
+		{PID: 4444, Argv: []string{"dolt", "sql-server", "--config", "/tmp/TestX/config.yaml"}},
+	}
+	var stdout, stderr bytes.Buffer
+	opts := cleanupOptions{
+		FS:                fsys.NewFake(),
+		JSON:              true,
+		Force:             true,
+		HomeDir:           "/home/u",
+		DiscoverProcesses: func() ([]DoltProcInfo, error) { return procs, nil },
+		KillProcess: func(pid int, _ syscall.Signal) error {
+			return syscall.EPERM
+		},
+		ReapGracePeriod: 1,
+	}
+	code := runDoltCleanup(opts, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit=%d, stderr=%s", code, stderr.String())
+	}
+	var r CleanupReport
+	if err := json.Unmarshal(stdout.Bytes(), &r); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if len(r.Reaped.Errors) == 0 {
+		t.Errorf("Reaped.Errors empty; want non-zero kill error")
+	}
+}
+
+func equalIntSlice(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

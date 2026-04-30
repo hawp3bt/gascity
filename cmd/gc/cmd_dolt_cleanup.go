@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/gastownhall/gascity/internal/config"
@@ -115,6 +117,11 @@ func (r CleanupReport) MarshalJSON() ([]byte, error) {
 // cleanupOptions bundles the inputs to runDoltCleanup so the command body
 // stays Cobra-free and testable. The Cobra command builds an options value
 // from flags and city state and hands it off.
+//
+// DiscoverProcesses and KillProcess are injection points for tests; in
+// production they default to the /proc walker and syscall.Kill respectively.
+// HomeDir defaults to the live $HOME and seeds the test-config-path allowlist
+// (~/.gotmp/Test* recognition).
 type cleanupOptions struct {
 	Flag     string
 	CityPort int
@@ -122,17 +129,24 @@ type cleanupOptions struct {
 	FS       fsys.FS
 	JSON     bool
 	Probe    bool
+	Force    bool
 	Host     string
+	HomeDir  string
+
+	DiscoverProcesses func() ([]DoltProcInfo, error)
+	KillProcess       func(pid int, sig syscall.Signal) error
+	ReapGracePeriod   time.Duration
 }
 
 // runDoltCleanup is the testable core of the `gc dolt-cleanup` command. It
 // applies the AD-04 §4.1 port-resolution chain, optionally probes the
-// resolved port, and writes either a CleanupReport JSON envelope or a
-// human-readable summary to stdout. Returns the exit code.
+// resolved port, runs the orphan-process reaper, and writes either a
+// CleanupReport JSON envelope or a human-readable summary to stdout.
+// Returns the exit code.
 //
-// Drop, purge, and reap stages are not yet implemented; their JSON sections
-// render as zero-valued structs (count=0, ok=false, etc.) so the schema is
-// stable from day one. Subsequent commits will populate them.
+// Drop and purge stages are not yet implemented; their JSON sections render
+// as zero-valued structs (count=0, ok=false, etc.) so the schema is stable
+// from day one. Subsequent commits will populate them.
 func runDoltCleanup(opts cleanupOptions, stdout, stderr io.Writer) int {
 	in := PortResolverInput{
 		Flag:     opts.Flag,
@@ -167,8 +181,73 @@ func runDoltCleanup(opts cleanupOptions, stdout, stderr io.Writer) int {
 		}
 	}
 
+	runReapStage(&report, opts)
+
 	emitReport(report, resolution, opts, stdout, stderr)
 	return 0
+}
+
+// runReapStage discovers live `dolt sql-server` processes, classifies them
+// against the rig-port and test-config-path allowlists, and (when --force is
+// set) sends SIGTERM followed by SIGKILL after a grace period. Errors are
+// recorded into the CleanupReport but do not abort the run — partial reap
+// progress is more useful than failing the whole stage.
+func runReapStage(report *CleanupReport, opts cleanupOptions) {
+	discover := opts.DiscoverProcesses
+	if discover == nil {
+		discover = discoverDoltProcesses
+	}
+	procs, err := discover()
+	if err != nil {
+		report.Errors = append(report.Errors, CleanupError{Stage: "reap", Error: err.Error()})
+		report.Summary.ErrorsTotal++
+		report.Reaped.Errors = append(report.Reaped.Errors, err.Error())
+		return
+	}
+
+	rigPorts := loadRigDoltPorts(opts.Rigs, opts.FS)
+	plan := planOrphanReap(procs, rigPorts, opts.HomeDir)
+
+	report.Reaped.ProtectedPIDs = nil
+	for _, p := range plan.Protected {
+		report.Reaped.ProtectedPIDs = append(report.Reaped.ProtectedPIDs, p.PID)
+	}
+
+	if !opts.Force {
+		report.Reaped.Count = len(plan.Reap)
+		return
+	}
+
+	killFn := opts.KillProcess
+	if killFn == nil {
+		killFn = killProcess
+	}
+	grace := opts.ReapGracePeriod
+	if grace <= 0 {
+		grace = 250 * time.Millisecond
+	}
+
+	killed := 0
+	for _, target := range plan.Reap {
+		if err := killFn(target.PID, syscall.SIGTERM); err != nil {
+			if err != syscall.ESRCH {
+				report.Reaped.Errors = append(report.Reaped.Errors,
+					fmt.Sprintf("pid %d SIGTERM: %v", target.PID, err))
+				continue
+			}
+		}
+		killed++
+	}
+	if grace > 0 {
+		time.Sleep(grace)
+	}
+	for _, target := range plan.Reap {
+		if err := killFn(target.PID, syscall.SIGKILL); err != nil && err != syscall.ESRCH {
+			report.Reaped.Errors = append(report.Reaped.Errors,
+				fmt.Sprintf("pid %d SIGKILL: %v", target.PID, err))
+		}
+	}
+	report.Reaped.Count = killed
 }
 
 func emitReport(report CleanupReport, resolution PortResolution, opts cleanupOptions, stdout, stderr io.Writer) {
@@ -237,6 +316,7 @@ func newDoltCleanupCmd(stdout, stderr io.Writer) *cobra.Command {
 		portFlag string
 		jsonOut  bool
 		probe    bool
+		force    bool
 	)
 
 	cmd := &cobra.Command{
@@ -245,10 +325,16 @@ func newDoltCleanupCmd(stdout, stderr io.Writer) *cobra.Command {
 		Long: `gc dolt-cleanup is the Go-side implementation of the operational Dolt
 cleanup tool. It resolves the Dolt server port via the AD-04 chain
 (--port > city dolt.port > <rigRoot>/.beads/dolt-server.port > 3307)
-and prints a structured report.
+and reaps orphaned dolt sql-server processes left over from leaked
+test harnesses.
 
-Drop, purge, and orphan-reap steps are wired in subsequent commits;
-the JSON schema (gc.dolt.cleanup.v1) is stable from day one.`,
+Dry-run by default. Pass --force to actually kill orphans (SIGTERM
+followed by SIGKILL after a short grace period). Active rig dolt
+servers and processes outside the test-config-path allowlist are
+always protected — see the PROTECTED section of the report.
+
+Drop and purge stages are wired in subsequent commits; the JSON
+schema (gc.dolt.cleanup.v1) is stable from day one.`,
 		Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			cityPath, err := resolveCity()
@@ -262,6 +348,7 @@ the JSON schema (gc.dolt.cleanup.v1) is stable from day one.`,
 				return errExit
 			}
 			rigs := loadResolverRigs(cityPath, cfg)
+			homeDir, _ := os.UserHomeDir()
 			opts := cleanupOptions{
 				Flag:     portFlag,
 				CityPort: cfg.Dolt.Port,
@@ -269,7 +356,9 @@ the JSON schema (gc.dolt.cleanup.v1) is stable from day one.`,
 				FS:       fsys.OSFS{},
 				JSON:     jsonOut,
 				Probe:    probe,
+				Force:    force,
 				Host:     cfg.Dolt.Host,
+				HomeDir:  homeDir,
 			}
 			if code := runDoltCleanup(opts, stdout, stderr); code != 0 {
 				return errExit
@@ -280,8 +369,10 @@ the JSON schema (gc.dolt.cleanup.v1) is stable from day one.`,
 	cmd.Flags().StringVar(&portFlag, "port", "", "override the resolved Dolt port")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "emit JSON envelope (gc.dolt.cleanup.v1)")
 	cmd.Flags().BoolVar(&probe, "probe", false, "TCP-probe the resolved port; fail if unreachable")
+	cmd.Flags().BoolVar(&force, "force", false, "actually kill orphan dolt sql-server processes (default: dry-run)")
 	return cmd
 }
+
 
 // loadResolverRigs builds the resolver's rig list from a city config. The HQ
 // rig (the city itself) is added first so it wins the AD-04 §4.1 tie when
