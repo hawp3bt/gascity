@@ -15,12 +15,12 @@ func TestPlanDoltDrops_FiltersByStalePrefixes(t *testing.T) {
 	if !equalStringSlice(plan.ToDrop, wantDrop) {
 		t.Errorf("ToDrop = %v, want %v", plan.ToDrop, wantDrop)
 	}
-	// Protected only counts names that matched a stale prefix AND are
-	// rig-protected — i.e., the safety override was load-bearing. "hq" and
-	// "beads" are protected but did not match a stale prefix, so they
-	// don't trigger that path.
-	if len(plan.Protected) != 0 {
-		t.Errorf("Protected = %v, want empty (no protected name matched a stale prefix)", plan.Protected)
+	// Protected enumerates every registered rig DB present in the input,
+	// regardless of stale-prefix match. This drives the human PROTECTED
+	// section ("these rigs exist on the server; we won't touch them").
+	wantProtected := []string{"hq", "beads"}
+	if !equalStringSlice(plan.Protected, wantProtected) {
+		t.Errorf("Protected = %v, want %v", plan.Protected, wantProtected)
 	}
 }
 

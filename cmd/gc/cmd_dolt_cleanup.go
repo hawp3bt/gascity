@@ -195,7 +195,9 @@ func runDoltCleanup(opts cleanupOptions, stdout, stderr io.Writer) int {
 	}
 
 	runDropStage(&report, opts)
+	runPurgeStage(&report, opts)
 	runReapStage(&report, opts)
+	report.Summary.BytesFreedDisk = report.Purge.BytesReclaimed
 
 	emitReport(report, resolution, opts, stdout, stderr)
 	return 0
