@@ -9,6 +9,13 @@ import (
 	"strings"
 )
 
+// FingerprintVersion namespaces the stored fingerprint hashes so the
+// reconciler can detect hashes written by older binaries (no prefix or a
+// different prefix) and silently rebaseline them instead of triggering a
+// false-positive drain. Bump this constant whenever the inputs to or the
+// algorithm of any Fingerprint helper change.
+const FingerprintVersion = "v1"
+
 // ConfigFingerprint returns a deterministic hash of the Config fields that
 // define an agent's behavioral identity. Changes to these fields indicate
 // the agent should be restarted (via drain when drain ops are available).
@@ -20,31 +27,77 @@ import (
 // Excluded (observation-only hints): WorkDir, ReadyPromptPrefix,
 // ReadyDelayMs, ProcessNames, EmitsPermissionWarning.
 //
-// The hash is a hex-encoded SHA-256. Same config always produces the same
-// hash regardless of map iteration order.
+// The hash is a hex-encoded SHA-256 prefixed with FingerprintVersion. Same
+// config always produces the same hash regardless of map iteration order.
 func ConfigFingerprint(cfg Config) string {
 	h := sha256.New()
 	hashCoreFields(h, cfg)
 	hashLiveFields(h, cfg)
-	return fmt.Sprintf("%x", h.Sum(nil))
+	return fmt.Sprintf("%s:%x", FingerprintVersion, h.Sum(nil))
 }
 
 // CoreFingerprint returns a hash of only the "core" config fields —
 // everything except SessionLive. A change to core fields triggers a
 // drain + restart. A change to only SessionLive triggers re-apply
-// without restart.
+// without restart. Output is prefixed with FingerprintVersion.
 func CoreFingerprint(cfg Config) string {
 	h := sha256.New()
 	hashCoreFields(h, cfg)
-	return fmt.Sprintf("%x", h.Sum(nil))
+	return fmt.Sprintf("%s:%x", FingerprintVersion, h.Sum(nil))
 }
 
 // LiveFingerprint returns a hash of only the SessionLive fields.
-// Used by the reconciler to detect live-only drift.
+// Used by the reconciler to detect live-only drift. Output is prefixed
+// with FingerprintVersion.
 func LiveFingerprint(cfg Config) string {
 	h := sha256.New()
 	hashLiveFields(h, cfg)
-	return fmt.Sprintf("%x", h.Sum(nil))
+	return fmt.Sprintf("%s:%x", FingerprintVersion, h.Sum(nil))
+}
+
+// IsLegacyOrMismatchedVersion reports whether the stored hash should
+// trigger a silent rebaseline rather than a drift drain. Returns true for
+// stored hashes with no version prefix (legacy bare hex) or a version
+// prefix that does not match FingerprintVersion. Returns false for empty
+// stored hashes (those are gated separately by the reconciler) and for
+// stored hashes that share the current version prefix.
+func IsLegacyOrMismatchedVersion(stored string) bool {
+	if stored == "" {
+		return false
+	}
+	colon := strings.IndexByte(stored, ':')
+	if colon < 0 {
+		// No colon: a bare hex hash from a pre-versioning binary, or an
+		// otherwise malformed value. Either way, treat as legacy.
+		return true
+	}
+	return stored[:colon] != FingerprintVersion
+}
+
+// IsVersionMismatchedHash reports whether the stored hash carries a
+// well-formed `v<digits>:` prefix that does not match FingerprintVersion.
+// Used to distinguish "another binary's version" from "no version prefix
+// at all" for trace-outcome reporting. Returns false for empty stored,
+// current-version stored, unversioned stored, and stored with a
+// non-`v<digits>:` prefix shape.
+func IsVersionMismatchedHash(stored string) bool {
+	colon := strings.IndexByte(stored, ':')
+	if colon < 1 {
+		return false
+	}
+	prefix := stored[:colon]
+	if prefix == FingerprintVersion {
+		return false
+	}
+	if prefix[0] != 'v' {
+		return false
+	}
+	for i := 1; i < len(prefix); i++ {
+		if prefix[i] < '0' || prefix[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // envFingerprintAllow is the set of env keys whose values define agent
