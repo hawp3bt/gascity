@@ -50,7 +50,6 @@ type FileRecorder struct {
 	maxSize               int64
 	rotationCheckRecords  int
 	rotationCheckInterval time.Duration
-	archiveRetainAge      time.Duration
 	recordCount           uint64
 	lastSizeCheck         time.Time
 }
@@ -81,13 +80,6 @@ func WithRotationCheckRecords(n int) FileRecorderOption {
 // once per interval. Defaults to 60s.
 func WithRotationCheckInterval(d time.Duration) FileRecorderOption {
 	return func(r *FileRecorder) { r.rotationCheckInterval = d }
-}
-
-// WithArchiveRetainAge sets the maximum age of archives to retain.
-// Archives older than this are garbage-collected at NewFileRecorder
-// open time. Zero means keep archives forever; this is the default.
-func WithArchiveRetainAge(d time.Duration) FileRecorderOption {
-	return func(r *FileRecorder) { r.archiveRetainAge = d }
 }
 
 // RotationResult is returned by ForceRotate (and B-3's API endpoint)
@@ -322,9 +314,14 @@ func (r *FileRecorder) rotateLocked() (RotationResult, error) {
 	r.file = nil
 
 	if err := os.Rename(r.path, rotatingPath); err != nil {
-		// Try to recover: re-open the original path.
+		// Try to recover: re-open the original path. If that also
+		// fails, mark the recorder closed so subsequent Record calls
+		// drop cleanly instead of dereferencing a nil file under
+		// maybeAutoRotateLocked.
 		if newF, openErr := os.OpenFile(r.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); openErr == nil {
 			r.file = newF
+		} else {
+			r.closed = true
 		}
 		return RotationResult{}, fmt.Errorf("renaming active log: %w", err)
 	}
