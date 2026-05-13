@@ -1457,8 +1457,11 @@ func TestEffectiveWorkQueryDefault(t *testing.T) {
 	a := Agent{Name: "mayor"}
 	got := a.EffectiveWorkQuery()
 	// Tiered query: check that tier 3 (routed_to) and tier 1-2 (assignee resolution) are present.
-	if !strings.Contains(got, "bd ready --metadata-field gc.routed_to=mayor --unassigned --exclude-type=epic --json --limit=1") {
+	if !strings.Contains(got, "bd ready --include-ephemeral --metadata-field gc.routed_to=mayor --unassigned --exclude-type=epic --json --limit=1") {
 		t.Errorf("EffectiveWorkQuery() missing tier 3 routed_to: %q", got)
+	}
+	if gotCount := strings.Count(got, "bd ready --include-ephemeral"); gotCount < 2 {
+		t.Errorf("EffectiveWorkQuery() = %q, want generated ready queries to include ephemeral work", got)
 	}
 	if !strings.Contains(got, `"$GC_SESSION_ID" "$GC_SESSION_NAME" "$GC_ALIAS"`) {
 		t.Errorf("EffectiveWorkQuery() missing multi-identifier resolution: %q", got)
@@ -1477,7 +1480,7 @@ func TestEffectiveWorkQueryCustom(t *testing.T) {
 func TestEffectiveWorkQueryWithDir(t *testing.T) {
 	a := Agent{Name: "polecat", Dir: "hello-world"}
 	got := a.EffectiveWorkQuery()
-	if !strings.Contains(got, "bd ready --metadata-field gc.routed_to=hello-world/polecat --unassigned --exclude-type=epic --json --limit=1") {
+	if !strings.Contains(got, "bd ready --include-ephemeral --metadata-field gc.routed_to=hello-world/polecat --unassigned --exclude-type=epic --json --limit=1") {
 		t.Errorf("EffectiveWorkQuery() missing tier 3 routed_to: %q", got)
 	}
 }
@@ -1485,7 +1488,7 @@ func TestEffectiveWorkQueryWithDir(t *testing.T) {
 func TestEffectiveWorkQueryPoolDefault(t *testing.T) {
 	a := Agent{Name: "polecat", Dir: "hello-world", MinActiveSessions: ptrInt(1), MaxActiveSessions: ptrInt(3)}
 	got := a.EffectiveWorkQuery()
-	if !strings.Contains(got, "bd ready --metadata-field gc.routed_to=hello-world/polecat --unassigned --exclude-type=epic --json --limit=1") {
+	if !strings.Contains(got, "bd ready --include-ephemeral --metadata-field gc.routed_to=hello-world/polecat --unassigned --exclude-type=epic --json --limit=1") {
 		t.Errorf("EffectiveWorkQuery() missing tier 3 routed_to: %q", got)
 	}
 	if strings.Contains(got, "--type=molecule") {
@@ -1538,7 +1541,7 @@ func TestEffectiveWorkQueryPoolNameOverride(t *testing.T) {
 		PoolName: "hello-world/dog",
 	}
 	got := a.EffectiveWorkQuery()
-	if !strings.Contains(got, "bd ready --metadata-field gc.routed_to=hello-world/dog --unassigned --exclude-type=epic --json --limit=1") {
+	if !strings.Contains(got, "bd ready --include-ephemeral --metadata-field gc.routed_to=hello-world/dog --unassigned --exclude-type=epic --json --limit=1") {
 		t.Errorf("EffectiveWorkQuery() missing tier 3 routed_to with pool name: %q", got)
 	}
 	if strings.Contains(got, "--type=molecule") {
@@ -1549,7 +1552,7 @@ func TestEffectiveWorkQueryPoolNameOverride(t *testing.T) {
 func TestEffectiveWorkQueryPoolNoPoolName(t *testing.T) {
 	a := Agent{Name: "dog", Dir: "hello-world", MinActiveSessions: ptrInt(1), MaxActiveSessions: ptrInt(3)}
 	got := a.EffectiveWorkQuery()
-	if !strings.Contains(got, "bd ready --metadata-field gc.routed_to=hello-world/dog --unassigned --exclude-type=epic --json --limit=1") {
+	if !strings.Contains(got, "bd ready --include-ephemeral --metadata-field gc.routed_to=hello-world/dog --unassigned --exclude-type=epic --json --limit=1") {
 		t.Errorf("EffectiveWorkQuery() missing tier 3 routed_to: %q", got)
 	}
 }
@@ -1585,8 +1588,8 @@ case "$*" in
   "list --status in_progress --assignee=gascity/workflow-control --exclude-type=epic --json --limit=1")
     printf '[]'
     ;;
-  "ready --assignee=gascity--workflow-control --exclude-type=epic --json --limit=1"|\
-  "ready --assignee=gascity/workflow-control --exclude-type=epic --json --limit=1")
+  "ready --include-ephemeral --assignee=gascity--workflow-control --exclude-type=epic --json --limit=1"|\
+  "ready --include-ephemeral --assignee=gascity/workflow-control --exclude-type=epic --json --limit=1")
     printf '[{"id":"ga-legacy-ready"}]'
     ;;
   *)
@@ -1604,10 +1607,10 @@ func TestEffectiveWorkQueryControlDispatcherClaimsLegacyUnassignedRoute(t *testi
 	out := runEffectiveWorkQuery(t, a, nil, `#!/bin/sh
 set -eu
 case "$*" in
-  "ready --metadata-field gc.routed_to=gascity/control-dispatcher --unassigned --exclude-type=epic --json --limit=1")
+  "ready --include-ephemeral --metadata-field gc.routed_to=gascity/control-dispatcher --unassigned --exclude-type=epic --json --limit=1")
     printf '[]'
     ;;
-  "ready --metadata-field gc.routed_to=gascity/workflow-control --unassigned --exclude-type=epic --json --limit=1")
+  "ready --include-ephemeral --metadata-field gc.routed_to=gascity/workflow-control --unassigned --exclude-type=epic --json --limit=1")
     printf '[{"id":"ga-legacy-route"}]'
     ;;
   *)
@@ -1647,8 +1650,8 @@ func TestEffectiveWorkQueryExcludesEpics(t *testing.T) {
 	// must structurally exclude the epic type.
 	wantSnippets := []string{
 		`bd list --status in_progress --assignee="$id" --exclude-type=epic --json`,
-		`bd ready --assignee="$id" --exclude-type=epic --json`,
-		`bd ready --metadata-field gc.routed_to=hello-world/worker --unassigned --exclude-type=epic --json`,
+		`bd ready --include-ephemeral --assignee="$id" --exclude-type=epic --json`,
+		`bd ready --include-ephemeral --metadata-field gc.routed_to=hello-world/worker --unassigned --exclude-type=epic --json`,
 	}
 	for _, want := range wantSnippets {
 		if !strings.Contains(got, want) {
@@ -1665,9 +1668,9 @@ func TestEffectiveWorkQueryExcludesEpicsControlDispatcher(t *testing.T) {
 	got := a.EffectiveWorkQuery()
 	wantSnippets := []string{
 		`bd list --status in_progress --assignee="$cand" --exclude-type=epic --json`,
-		`bd ready --assignee="$cand" --exclude-type=epic --json`,
-		`bd ready --metadata-field gc.routed_to=gascity/control-dispatcher --unassigned --exclude-type=epic --json`,
-		`bd ready --metadata-field gc.routed_to=gascity/workflow-control --unassigned --exclude-type=epic --json`,
+		`bd ready --include-ephemeral --assignee="$cand" --exclude-type=epic --json`,
+		`bd ready --include-ephemeral --metadata-field gc.routed_to=gascity/control-dispatcher --unassigned --exclude-type=epic --json`,
+		`bd ready --include-ephemeral --metadata-field gc.routed_to=gascity/workflow-control --unassigned --exclude-type=epic --json`,
 	}
 	for _, want := range wantSnippets {
 		if !strings.Contains(got, want) {
@@ -1745,6 +1748,9 @@ func TestDefaultPoolCheckUsesBdReady(t *testing.T) {
 	check := a.EffectiveScaleCheck()
 	if !strings.Contains(check, "bd ready") {
 		t.Errorf("EffectiveScaleCheck() = %q, want bd ready for blocker-aware counting", check)
+	}
+	if !strings.Contains(check, "bd ready --include-ephemeral") {
+		t.Errorf("EffectiveScaleCheck() = %q, want ephemeral ready work counted", check)
 	}
 	if strings.Contains(check, "--type=molecule") {
 		t.Errorf("EffectiveScaleCheck() = %q, should not count molecule containers as demand", check)
@@ -1926,6 +1932,9 @@ func TestEffectiveScaleCheckDefaults(t *testing.T) {
 	// Default check uses bd ready for blocker-aware routed demand.
 	if !strings.Contains(check, "gc.routed_to=refinery") {
 		t.Errorf("EffectiveScaleCheck = %q, want gc.routed_to=refinery", check)
+	}
+	if !strings.Contains(check, "bd ready --include-ephemeral") {
+		t.Errorf("EffectiveScaleCheck = %q, want ephemeral ready work counted", check)
 	}
 	if !strings.Contains(check, "--unassigned") {
 		t.Errorf("EffectiveScaleCheck = %q, want --unassigned for new unassigned demand", check)

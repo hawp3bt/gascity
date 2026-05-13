@@ -2476,7 +2476,7 @@ func (a *Agent) EffectiveWorkQuery() string {
 			// Tier 2: ready assigned to any of my identifiers (pre-assigned)
 			`for id in "$GC_SESSION_ID" "$GC_SESSION_NAME" "$GC_ALIAS"; do ` +
 			`[ -z "$id" ] && continue; ` +
-			`r=$(bd ready --assignee="$id" --exclude-type=epic --json --limit=1 2>/dev/null); ` +
+			`r=$(bd ready --include-ephemeral --assignee="$id" --exclude-type=epic --json --limit=1 2>/dev/null); ` +
 			`[ -n "$r" ] && [ "$r" != "[]" ] && printf "%s" "$r" && exit 0; ` +
 			`done; ` +
 			// Tier 3: ready unassigned routed to this config (shared routed queue).
@@ -2485,7 +2485,7 @@ func (a *Agent) EffectiveWorkQuery() string {
 			`ephemeral|"") ;; ` +
 			`*) exit 0 ;; ` +
 			`esac; ` +
-			`r=$(bd ready --metadata-field gc.routed_to=` + target +
+			`r=$(bd ready --include-ephemeral --metadata-field gc.routed_to=` + target +
 			` --unassigned --exclude-type=epic --json --limit=1 2>/dev/null); ` +
 			`[ -n "$r" ] && [ "$r" != "[]" ] && printf "%s" "$r" && exit 0; ` +
 			`printf "[]"'`
@@ -2509,7 +2509,7 @@ func (a *Agent) EffectiveWorkQuery() string {
 		`legacy=""; case "$id" in *control-dispatcher) legacy="${id%control-dispatcher}workflow-control";; esac; ` +
 		`for cand in "$id" "$legacy"; do ` +
 		`[ -z "$cand" ] && continue; ` +
-		`r=$(bd ready --assignee="$cand" --exclude-type=epic --json --limit=1 2>/dev/null); ` +
+		`r=$(bd ready --include-ephemeral --assignee="$cand" --exclude-type=epic --json --limit=1 2>/dev/null); ` +
 		`[ -n "$r" ] && [ "$r" != "[]" ] && printf "%s" "$r" && exit 0; ` +
 		`done; ` +
 		`done; ` +
@@ -2520,10 +2520,10 @@ func (a *Agent) EffectiveWorkQuery() string {
 		`ephemeral|"") ;; ` +
 		`*) exit 0 ;; ` +
 		`esac; ` +
-		`r=$(bd ready --metadata-field gc.routed_to=` + target +
+		`r=$(bd ready --include-ephemeral --metadata-field gc.routed_to=` + target +
 		` --unassigned --exclude-type=epic --json --limit=1 2>/dev/null); ` +
 		`[ -n "$r" ] && [ "$r" != "[]" ] && printf "%s" "$r" && exit 0; ` +
-		`bd ready --metadata-field gc.routed_to=` + legacyTarget +
+		`bd ready --include-ephemeral --metadata-field gc.routed_to=` + legacyTarget +
 		` --unassigned --exclude-type=epic --json --limit=1 2>/dev/null'`
 }
 
@@ -2595,7 +2595,7 @@ func (a *Agent) EffectiveScaleCheck() string {
 		return a.ScaleCheck
 	}
 	template := a.QualifiedName()
-	return `ready_json=$(bd ready --metadata-field gc.routed_to=` + template +
+	return `ready_json=$(bd ready --include-ephemeral --metadata-field gc.routed_to=` + template +
 		` --unassigned --limit 0 --json) && printf '%s\n' "$ready_json" | jq 'length'`
 }
 
