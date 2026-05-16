@@ -19,6 +19,7 @@ import (
 	beadsexec "github.com/gastownhall/gascity/internal/beads/exec"
 	"github.com/gastownhall/gascity/internal/config"
 	"github.com/gastownhall/gascity/internal/configedit"
+	"github.com/gastownhall/gascity/internal/emergency"
 	"github.com/gastownhall/gascity/internal/events"
 	"github.com/gastownhall/gascity/internal/extmsg"
 	"github.com/gastownhall/gascity/internal/fsys"
@@ -50,6 +51,7 @@ type controllerState struct {
 	ct            crashTracker  // nil if crash tracking disabled
 	pokeCh        chan struct{} // nil when poke is not available; triggers immediate reconciler tick
 	configDirty   *atomic.Bool  // optional dirty flag shared with the reconciler reload path
+	emergencyCh   chan emergency.Record
 	services      workspacesvc.Registry
 	extmsgSvc     *extmsg.Services
 	adapterReg    *extmsg.AdapterRegistry

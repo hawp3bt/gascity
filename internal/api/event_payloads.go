@@ -116,6 +116,24 @@ type CityLifecyclePayload struct {
 // IsEventPayload marks CityLifecyclePayload as an events.Payload variant.
 func (CityLifecyclePayload) IsEventPayload() {}
 
+// EmergencyEventPayload is the typed wire shape for emergency.* events
+// mirrored from the city-local emergency spool.
+type EmergencyEventPayload struct {
+	ID         string            `json:"id" doc:"Emergency spool record id."`
+	Severity   string            `json:"severity" enum:"info,warn,error,critical" doc:"Emergency severity."`
+	Actor      string            `json:"actor" doc:"Actor that emitted the emergency."`
+	Message    string            `json:"message" doc:"Human-readable emergency message."`
+	RefBead    string            `json:"ref_bead,omitempty" doc:"Optional related bead id."`
+	SourcePath string            `json:"source_path,omitempty" doc:"Working directory or source path that emitted the emergency."`
+	SourcePID  int               `json:"source_pid,omitempty" doc:"Process id that emitted the emergency."`
+	Hostname   string            `json:"hostname,omitempty" doc:"Hostname that emitted the emergency."`
+	CreatedAt  time.Time         `json:"created_at" doc:"UTC timestamp when the emergency record was created."`
+	Metadata   map[string]string `json:"metadata,omitempty" doc:"Additional string metadata supplied by the emitter."`
+}
+
+// IsEventPayload marks EmergencyEventPayload as an events.Payload variant.
+func (EmergencyEventPayload) IsEventPayload() {}
+
 // BeadEventPayload is the shape of every bead.* event payload
 // (BeadCreated, BeadUpdated, BeadClosed). The payload carries a full
 // snapshot of the bead as of the event; it is emitted by bd hooks and by
@@ -403,6 +421,8 @@ func init() {
 	// Non-terminal city lifecycle events (diagnostics only).
 	events.RegisterPayload(events.CityCreated, CityLifecyclePayload{})
 	events.RegisterPayload(events.CityUnregisterRequested, CityLifecyclePayload{})
+	events.RegisterPayload(events.EmergencySignaled, EmergencyEventPayload{})
+	events.RegisterPayload(events.EmergencyAcked, EmergencyEventPayload{})
 
 	events.RegisterPayload(events.OrderFired, events.NoPayload{})
 	events.RegisterPayload(events.OrderCompleted, events.NoPayload{})

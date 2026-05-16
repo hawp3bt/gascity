@@ -680,6 +680,51 @@ export type Dep = {
     type: string;
 };
 
+export type EmergencyEventPayload = {
+    /**
+     * Actor that emitted the emergency.
+     */
+    actor: string;
+    /**
+     * UTC timestamp when the emergency record was created.
+     */
+    created_at: string;
+    /**
+     * Hostname that emitted the emergency.
+     */
+    hostname?: string;
+    /**
+     * Emergency spool record id.
+     */
+    id: string;
+    /**
+     * Human-readable emergency message.
+     */
+    message: string;
+    /**
+     * Additional string metadata supplied by the emitter.
+     */
+    metadata?: {
+        [key: string]: string;
+    };
+    /**
+     * Optional related bead id.
+     */
+    ref_bead?: string;
+    /**
+     * Emergency severity.
+     */
+    severity: 'info' | 'warn' | 'error' | 'critical';
+    /**
+     * Working directory or source path that emitted the emergency.
+     */
+    source_path?: string;
+    /**
+     * Process id that emitted the emergency.
+     */
+    source_pid?: number;
+};
+
 export type ErrorDetail = {
     /**
      * Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id'
@@ -748,7 +793,7 @@ export type EventEmitRequest = {
     type: string;
 };
 
-export type EventPayload = AdapterEventPayload | BeadEventPayload | BoundEventPayload | CityCreateSucceededPayload | CityLifecyclePayload | CityUnregisterSucceededPayload | GroupCreatedEventPayload | InboundEventPayload | MailEventPayload | NoPayload | OutboundEventPayload | RequestFailedPayload | RotatedPayload | SessionCreateSucceededPayload | SessionLifecyclePayload | SessionMessageSucceededPayload | SessionSubmitSucceededPayload | SupervisorFsPressureSkippedTickPayload | UnboundEventPayload | WorkerOperationEventPayload;
+export type EventPayload = AdapterEventPayload | BeadEventPayload | BoundEventPayload | CityCreateSucceededPayload | CityLifecyclePayload | CityUnregisterSucceededPayload | EmergencyEventPayload | GroupCreatedEventPayload | InboundEventPayload | MailEventPayload | NoPayload | OutboundEventPayload | RequestFailedPayload | RotatedPayload | SessionCreateSucceededPayload | SessionLifecyclePayload | SessionMessageSucceededPayload | SessionSubmitSucceededPayload | SupervisorFsPressureSkippedTickPayload | UnboundEventPayload | WorkerOperationEventPayload;
 
 export type EventStreamEnvelope = {
     actor: string;
@@ -2915,6 +2960,10 @@ export type TypedEventStreamEnvelope = ({
 } & TypedEventStreamEnvelopeConvoyClosed) | ({
     type: 'convoy.created';
 } & TypedEventStreamEnvelopeConvoyCreated) | ({
+    type: 'emergency.acked';
+} & TypedEventStreamEnvelopeEmergencyAcked) | ({
+    type: 'emergency.signaled';
+} & TypedEventStreamEnvelopeEmergencySignaled) | ({
     type: 'events.rotated';
 } & TypedEventStreamEnvelopeEventsRotated) | ({
     type: 'extmsg.adapter_added';
@@ -3157,6 +3206,34 @@ export type TypedEventStreamEnvelopeCustom = {
     subject?: string;
     ts: string;
     type: string;
+    workflow?: WorkflowEventProjection;
+};
+
+/**
+ * TypedEventStreamEnvelope emergency.acked
+ */
+export type TypedEventStreamEnvelopeEmergencyAcked = {
+    actor: string;
+    message?: string;
+    payload: EmergencyEventPayload;
+    seq: number;
+    subject?: string;
+    ts: string;
+    type: 'emergency.acked';
+    workflow?: WorkflowEventProjection;
+};
+
+/**
+ * TypedEventStreamEnvelope emergency.signaled
+ */
+export type TypedEventStreamEnvelopeEmergencySignaled = {
+    actor: string;
+    message?: string;
+    payload: EmergencyEventPayload;
+    seq: number;
+    subject?: string;
+    ts: string;
+    type: 'emergency.signaled';
     workflow?: WorkflowEventProjection;
 };
 
@@ -3706,6 +3783,10 @@ export type TypedTaggedEventStreamEnvelope = ({
 } & TypedTaggedEventStreamEnvelopeConvoyClosed) | ({
     type: 'convoy.created';
 } & TypedTaggedEventStreamEnvelopeConvoyCreated) | ({
+    type: 'emergency.acked';
+} & TypedTaggedEventStreamEnvelopeEmergencyAcked) | ({
+    type: 'emergency.signaled';
+} & TypedTaggedEventStreamEnvelopeEmergencySignaled) | ({
     type: 'events.rotated';
 } & TypedTaggedEventStreamEnvelopeEventsRotated) | ({
     type: 'extmsg.adapter_added';
@@ -3960,6 +4041,36 @@ export type TypedTaggedEventStreamEnvelopeCustom = {
     subject?: string;
     ts: string;
     type: string;
+    workflow?: WorkflowEventProjection;
+};
+
+/**
+ * TypedTaggedEventStreamEnvelope emergency.acked
+ */
+export type TypedTaggedEventStreamEnvelopeEmergencyAcked = {
+    actor: string;
+    city: string;
+    message?: string;
+    payload: EmergencyEventPayload;
+    seq: number;
+    subject?: string;
+    ts: string;
+    type: 'emergency.acked';
+    workflow?: WorkflowEventProjection;
+};
+
+/**
+ * TypedTaggedEventStreamEnvelope emergency.signaled
+ */
+export type TypedTaggedEventStreamEnvelopeEmergencySignaled = {
+    actor: string;
+    city: string;
+    message?: string;
+    payload: EmergencyEventPayload;
+    seq: number;
+    subject?: string;
+    ts: string;
+    type: 'emergency.signaled';
     workflow?: WorkflowEventProjection;
 };
 

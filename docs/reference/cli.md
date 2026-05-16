@@ -32,6 +32,7 @@ gc [flags]
 | [gc dashboard](#gc-dashboard) | Web dashboard for monitoring the supervisor and managed cities |
 | [gc doctor](#gc-doctor) | Check workspace health |
 | [gc dolt-cleanup](#gc-dolt-cleanup) | Find and remove orphaned Dolt databases (Go-side core) |
+| [gc emergency](#gc-emergency) | Send dolt-independent emergency signals |
 | [gc event](#gc-event) | Event operations |
 | [gc events](#gc-events) | Show events from the GC API |
 | [gc formula](#gc-formula) | Manage and inspect formulas |
@@ -1015,6 +1016,42 @@ gc dolt-cleanup [flags]
 | `--max-orphan-dbs` | int |  | with --force, refuse cleanup when live stale database count exceeds this limit |
 | `--port` | string |  | override the resolved Dolt port |
 | `--probe` | bool |  | TCP-probe the resolved port; fail if unreachable |
+
+## gc emergency
+
+Send dolt-independent emergency signals
+
+```
+gc emergency
+```
+
+| Subcommand | Description |
+|------------|-------------|
+| [gc emergency send](#gc-emergency-send) | Send a dolt-independent emergency signal |
+
+## gc emergency send
+
+Send a dolt-independent emergency signal.
+
+Use this when normal reporting paths such as bd update or gc mail send
+cannot be trusted. The signal is written to a filesystem spool and then
+best-effort forwarded to events.jsonl, the controller socket, and the host
+notification system.
+
+```
+gc emergency send [flags] [<message>]
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--actor` | string |  | actor name (default: $GC_ALIAS, $GC_AGENT, $GC_SESSION_ID, $BEADS_ACTOR, human) |
+| `--body-file` | string |  | read message from file ("-" = stdin) |
+| `--message` | string |  | message body (alternative to positional) |
+| `--metadata` | stringArray |  | metadata key=value (repeatable) |
+| `--notify` | bool |  | force OS notification regardless of severity |
+| `--quiet` | bool |  | suppress OS notification regardless of severity |
+| `--ref` | string |  | related bead id |
+| `-s`, `--severity` | string | `error` | info\|warn\|error\|critical |
 
 ## gc event
 

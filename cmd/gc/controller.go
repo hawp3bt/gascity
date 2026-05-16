@@ -25,6 +25,7 @@ import (
 	"github.com/gastownhall/gascity/internal/beads"
 	"github.com/gastownhall/gascity/internal/config"
 	"github.com/gastownhall/gascity/internal/convergence"
+	"github.com/gastownhall/gascity/internal/emergency"
 	"github.com/gastownhall/gascity/internal/events"
 	"github.com/gastownhall/gascity/internal/fsys"
 	"github.com/gastownhall/gascity/internal/pathutil"
@@ -128,7 +129,9 @@ func startControllerSocket(
 	convergenceReqCh chan convergenceRequest,
 	pokeCh chan struct{},
 	controlDispatcherCh chan struct{},
+	emergencyChOpt ...chan emergency.Record,
 ) (net.Listener, error) {
+	emergencyCh := optionalEmergencyChannel(emergencyChOpt)
 	sockPath := controllerSocketPath(cityPath)
 	if err := os.MkdirAll(filepath.Dir(sockPath), 0o700); err != nil {
 		return nil, fmt.Errorf("creating controller socket dir: %w", err)
@@ -145,7 +148,7 @@ func startControllerSocket(
 			if err != nil {
 				return // listener closed
 			}
-			go handleControllerConn(conn, cityPath, cancelFn, forceShutdown, dirty, reloadReqCh, convergenceReqCh, pokeCh, controlDispatcherCh)
+			go handleControllerConn(conn, cityPath, cancelFn, forceShutdown, dirty, reloadReqCh, convergenceReqCh, pokeCh, controlDispatcherCh, emergencyCh)
 		}
 	}()
 	return lis, nil
@@ -165,7 +168,9 @@ func handleControllerConn(
 	convergenceReqCh chan convergenceRequest,
 	pokeCh chan struct{},
 	controlDispatcherCh chan struct{},
+	emergencyChOpt ...chan emergency.Record,
 ) {
+	emergencyCh := optionalEmergencyChannel(emergencyChOpt)
 	defer conn.Close()                                 //nolint:errcheck // best-effort cleanup
 	conn.SetDeadline(time.Now().Add(95 * time.Second)) //nolint:errcheck // symmetric read+write deadline; 5s margin over 30s enqueue + 60s reply
 	scanner := bufio.NewScanner(conn)
@@ -212,6 +217,8 @@ func handleControllerConn(
 			conn.Write([]byte("ok\n")) //nolint:errcheck // best-effort ack
 		case strings.HasPrefix(line, sessionCircuitResetCommandPrefix):
 			handleSessionCircuitResetSocketCmd(conn, cityPath, line[len(sessionCircuitResetCommandPrefix):])
+		case strings.HasPrefix(line, emergencyControllerCommandPrefix):
+			handleEmergencySocketCmd(conn, line[len(emergencyControllerCommandPrefix):], emergencyCh)
 		case strings.HasPrefix(line, "converge:"):
 			handleConvergeSocketCmd(conn, line[len("converge:"):], convergenceReqCh)
 		case strings.HasPrefix(line, "trace-arm:"):
@@ -232,6 +239,28 @@ func handleControllerConn(
 			handleTraceStatusSocketCmd(conn, cityPath)
 		}
 	}
+}
+
+func optionalEmergencyChannel(channels []chan emergency.Record) chan emergency.Record {
+	if len(channels) == 0 {
+		return nil
+	}
+	return channels[0]
+}
+
+func handleEmergencySocketCmd(conn net.Conn, payload string, emergencyCh chan emergency.Record) {
+	var rec emergency.Record
+	if err := json.Unmarshal([]byte(payload), &rec); err != nil {
+		conn.Write([]byte("error: invalid emergency request\n")) //nolint:errcheck // best-effort ack
+		return
+	}
+	if emergencyCh != nil {
+		select {
+		case emergencyCh <- rec:
+		default:
+		}
+	}
+	conn.Write([]byte("ok\n")) //nolint:errcheck // best-effort ack
 }
 
 func handleSessionCircuitResetSocketCmd(conn net.Conn, cityPath, payload string) {
@@ -1245,11 +1274,12 @@ func runController(
 	reloadReqCh := make(chan reloadRequest)
 	pokeCh := make(chan struct{}, 1)
 	controlDispatcherCh := make(chan struct{}, 1)
+	emergencyCh := make(chan emergency.Record, 64)
 	configDirty := &atomic.Bool{}
 
 	sockPath := controllerSocketPath(cityPath)
 	forceShutdown := &atomic.Bool{}
-	lis, err := startControllerSocket(cityPath, cancel, forceShutdown, configDirty, reloadReqCh, convergenceReqCh, pokeCh, controlDispatcherCh)
+	lis, err := startControllerSocket(cityPath, cancel, forceShutdown, configDirty, reloadReqCh, convergenceReqCh, pokeCh, controlDispatcherCh, emergencyCh)
 	if err != nil {
 		fmt.Fprintf(stderr, "gc start: %v\n", err) //nolint:errcheck // best-effort stderr
 		return 1
@@ -1312,6 +1342,7 @@ func runController(
 	cs.ct = cr.crashTrack()
 	cs.pokeCh = pokeCh
 	cs.configDirty = configDirty
+	cs.emergencyCh = emergencyCh
 	cs.services = cr.svc
 	cs.startBeadEventWatcher(ctx)
 	cr.setControllerState(cs)

@@ -76,6 +76,11 @@ const (
 	ExtMsgInbound        = "extmsg.inbound"
 	ExtMsgOutbound       = "extmsg.outbound"
 
+	// Emergency events are dolt-independent escalation records written to
+	// .gc/emergency and mirrored into the city event log.
+	EmergencySignaled = "emergency.signaled"
+	EmergencyAcked    = "emergency.acked"
+
 	// EventsRotated is the forensic anchor written as the first event in
 	// a freshly-rotated active log. Its payload carries the prior
 	// archive's filename and seq range so log readers can stitch back
@@ -106,6 +111,7 @@ var KnownEventTypes = []string{
 	ExtMsgBound, ExtMsgUnbound, ExtMsgGroupCreated,
 	ExtMsgAdapterAdded, ExtMsgAdapterRemoved,
 	ExtMsgInbound, ExtMsgOutbound,
+	EmergencySignaled, EmergencyAcked,
 	EventsRotated,
 }
 

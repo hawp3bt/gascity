@@ -23,6 +23,7 @@ import (
 	"github.com/gastownhall/gascity/internal/beads"
 	"github.com/gastownhall/gascity/internal/config"
 	"github.com/gastownhall/gascity/internal/convergence"
+	"github.com/gastownhall/gascity/internal/emergency"
 	"github.com/gastownhall/gascity/internal/events"
 	"github.com/gastownhall/gascity/internal/fsys"
 	"github.com/gastownhall/gascity/internal/hooks"
@@ -1456,6 +1457,7 @@ func reconcileCities(
 
 		convergenceReqCh := make(chan convergenceRequest, 16)
 		controlDispatcherCh := make(chan struct{}, 1)
+		emergencyCh := make(chan emergency.Record, 64)
 
 		var cityRuntime *CityRuntime
 		if err := runPostPrepareStep("building_city_runtime", func() error {
@@ -1516,6 +1518,7 @@ func reconcileCities(
 		cs.ct = cityRuntime.crashTrack()
 		cs.pokeCh = pokeCh
 		cs.configDirty = configDirty
+		cs.emergencyCh = emergencyCh
 		cs.services = cityRuntime.svc
 		cs.startBeadEventWatcher(cityCtx)
 		cityRuntime.setControllerState(cs)
@@ -1577,7 +1580,7 @@ func reconcileCities(
 		// Start controller socket AFTER the alreadyRunning check so we
 		// never destroy a live city's socket or leak a listener.
 		sockPath := filepath.Join(path, ".gc", "controller.sock")
-		lis, lisErr := startControllerSocket(path, cityCancel, forceShutdown, configDirty, reloadReqCh, convergenceReqCh, pokeCh, controlDispatcherCh)
+		lis, lisErr := startControllerSocket(path, cityCancel, forceShutdown, configDirty, reloadReqCh, convergenceReqCh, pokeCh, controlDispatcherCh, emergencyCh)
 		if lisErr != nil {
 			fmt.Fprintf(stderr, "gc supervisor: city '%s': controller socket: %v\n", cityName, lisErr) //nolint:errcheck
 			lock.Close()                                                                               //nolint:errcheck // no socket to race with
