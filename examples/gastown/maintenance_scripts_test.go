@@ -375,6 +375,23 @@ func TestMaintenanceDoltScriptsFallbackToManagedRuntimePorts(t *testing.T) {
 			},
 		},
 		{
+			name: "invalid managed state falls back to provider state",
+			setup: func(t *testing.T, cityDir string) string {
+				t.Helper()
+				stateDir := filepath.Join(cityDir, ".gc", "runtime", "packs", "dolt")
+				if err := os.MkdirAll(stateDir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(stateDir, "dolt-state.json"), []byte(`not-json`), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				listener := listenManagedDoltPort(t)
+				port := listener.Addr().(*net.TCPAddr).Port
+				writeProviderRuntimeState(t, cityDir, port)
+				return strconv.Itoa(port)
+			},
+		},
+		{
 			name: "corrupt managed state ignores compatibility port mirror",
 			setup: func(t *testing.T, cityDir string) string {
 				t.Helper()
@@ -2887,7 +2904,17 @@ func writeManagedRuntimeState(t *testing.T, cityDir string, port int) {
 	writeManagedRuntimeStateWithPID(t, cityDir, port, os.Getpid())
 }
 
+func writeProviderRuntimeState(t *testing.T, cityDir string, port int) {
+	t.Helper()
+	writeRuntimeStateFile(t, cityDir, "dolt-provider-state.json", port, os.Getpid())
+}
+
 func writeManagedRuntimeStateWithPID(t *testing.T, cityDir string, port int, pid int) {
+	t.Helper()
+	writeRuntimeStateFile(t, cityDir, "dolt-state.json", port, pid)
+}
+
+func writeRuntimeStateFile(t *testing.T, cityDir string, filename string, port int, pid int) {
 	t.Helper()
 	stateDir := filepath.Join(cityDir, ".gc", "runtime", "packs", "dolt")
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
@@ -2903,7 +2930,7 @@ func writeManagedRuntimeStateWithPID(t *testing.T, cityDir string, port int, pid
 	if err != nil {
 		t.Fatalf("Marshal(managed runtime state): %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(stateDir, "dolt-state.json"), payload, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(stateDir, filename), payload, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
