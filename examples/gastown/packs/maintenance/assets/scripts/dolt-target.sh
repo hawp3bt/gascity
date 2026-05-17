@@ -147,15 +147,13 @@ if [ -z "${GC_DOLT_PORT:-}" ]; then
         DOLT_STATE_FILE="$GC_DOLT_STATE_FILE"
     else
         DOLT_PACK_DIR="${GC_CITY_RUNTIME_DIR:-$GC_CITY_PATH/.gc/runtime}/packs/dolt"
-        if [ -f "$DOLT_PACK_DIR/dolt-state.json" ]; then
-            DOLT_STATE_FILE="$DOLT_PACK_DIR/dolt-state.json"
-        elif [ -f "$DOLT_PACK_DIR/dolt-provider-state.json" ]; then
-            DOLT_STATE_FILE="$DOLT_PACK_DIR/dolt-provider-state.json"
-        else
-            DOLT_STATE_FILE="$DOLT_PACK_DIR/dolt-state.json"
-        fi
+        DOLT_STATE_FILE="$DOLT_PACK_DIR/dolt-state.json"
+        DOLT_PROVIDER_STATE_FILE="$DOLT_PACK_DIR/dolt-provider-state.json"
     fi
     GC_DOLT_PORT="$(managed_runtime_port "$DOLT_STATE_FILE" "$GC_CITY_PATH/.beads/dolt")"
+    if [ -z "$GC_DOLT_PORT" ] && [ -z "${GC_DOLT_STATE_FILE:-}" ]; then
+        GC_DOLT_PORT="$(managed_runtime_port "$DOLT_PROVIDER_STATE_FILE" "$GC_CITY_PATH/.beads/dolt")"
+    fi
 fi
 
 : "${GC_DOLT_PORT:=3307}"
