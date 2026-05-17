@@ -86,6 +86,7 @@ func normalizeVersion(v string) string {
 
 func newVersionCmd(stdout io.Writer) *cobra.Command {
 	var longOutput bool
+	var jsonOutput bool
 	cmd := &cobra.Command{
 		Use:   "version",
 		Short: "Print gc version",
@@ -94,6 +95,15 @@ func newVersionCmd(stdout io.Writer) *cobra.Command {
 Use --long to include git commit and build date metadata.`,
 		Args: cobra.NoArgs,
 		Run: func(_ *cobra.Command, _ []string) {
+			if jsonOutput {
+				_ = writeCLIJSONLine(stdout, versionJSON{
+					SchemaVersion: "1",
+					Version:       version,
+					Commit:        commit,
+					Date:          date,
+				})
+				return
+			}
 			if longOutput {
 				fmt.Fprintf(stdout, "%s (commit: %s, built: %s)\n", version, commit, date) //nolint:errcheck // best-effort stdout
 				return
@@ -102,5 +112,13 @@ Use --long to include git commit and build date metadata.`,
 		},
 	}
 	cmd.Flags().BoolVarP(&longOutput, "long", "l", false, "Include git commit and build date metadata")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output one JSONL result record")
 	return cmd
+}
+
+type versionJSON struct {
+	SchemaVersion string `json:"schema_version"`
+	Version       string `json:"version"`
+	Commit        string `json:"commit"`
+	Date          string `json:"date"`
 }

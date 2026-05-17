@@ -52,7 +52,7 @@ func TestJSONSchemaManifestForSupportedCommand(t *testing.T) {
 
 func TestJSONSchemaManifestForUnsupportedCommand(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"version", "--json-schema"}, &stdout, &stderr)
+	code := run([]string{"shell", "remove", "--json-schema"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("run(version --json-schema) = %d, stderr=%q stdout=%q", code, stderr.String(), stdout.String())
 	}
@@ -68,8 +68,8 @@ func TestJSONSchemaManifestForUnsupportedCommand(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &manifest); err != nil {
 		t.Fatalf("manifest is not JSON: %v\n%s", err, stdout.String())
 	}
-	if got := strings.Join(manifest.Command, " "); got != "version" {
-		t.Fatalf("command = %q, want version", got)
+	if got := strings.Join(manifest.Command, " "); got != "shell remove" {
+		t.Fatalf("command = %q, want shell remove", got)
 	}
 	if manifest.JSONSupported {
 		t.Fatalf("json_supported = true, want false")
@@ -128,7 +128,7 @@ func TestJSONSchemaRoleSpecificFailureUsesSharedDefault(t *testing.T) {
 
 func TestJSONSchemaUnavailableRoleFailureIsStructured(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"version", "--json-schema=result"}, &stdout, &stderr)
+	code := run([]string{"shell", "remove", "--json-schema=result"}, &stdout, &stderr)
 	if code == 0 {
 		t.Fatalf("run(version --json-schema=result) = 0, want nonzero")
 	}
@@ -155,7 +155,7 @@ func TestJSONSchemaUnavailableRoleFailureIsStructured(t *testing.T) {
 
 func TestJSONUnsupportedCommandFailureIsStructured(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"version", "--json"}, &stdout, &stderr)
+	code := run([]string{"shell", "remove", "--json"}, &stdout, &stderr)
 	if code == 0 {
 		t.Fatalf("run(version --json) = 0, want nonzero")
 	}
