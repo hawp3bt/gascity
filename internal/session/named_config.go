@@ -2,7 +2,9 @@ package session
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gastownhall/gascity/internal/beads"
 	"github.com/gastownhall/gascity/internal/config"
@@ -184,6 +186,40 @@ func NamedSessionBeadMatchesSpec(b beads.Bead, spec NamedSessionSpec) bool {
 	return template == backingTemplate || agentName == backingTemplate
 }
 
+// BeadIsLikelyConfiguredNamedOwner reports whether a session bead is
+// the most-likely live owner of a configured named session even when
+// it is missing the configured_named_session=true family of metadata.
+// All comparisons normalize via NormalizeNamedSessionTarget.
+//
+// The predicate is the conjunction:
+//
+//	agent_name == NamedSessionBackingTemplate(spec)
+//	  AND alias == spec.Identity
+//	  AND template == NamedSessionBackingTemplate(spec)
+//
+// Closed beads, non-session-bead records, and beads with empty spec
+// keys return false. Used by FindCanonicalNamedSessionBead's third
+// branch (read path) and the reconciler's metadata-backfill scan
+// (write path). The two layers MUST call this function; do not
+// inline the conjunction in either site.
+func BeadIsLikelyConfiguredNamedOwner(b beads.Bead, spec NamedSessionSpec) bool {
+	identity := NormalizeNamedSessionTarget(spec.Identity)
+	backing := NormalizeNamedSessionTarget(NamedSessionBackingTemplate(spec))
+	if identity == "" || backing == "" {
+		return false
+	}
+	if !IsSessionBeadOrRepairable(b) || b.Status == "closed" {
+		return false
+	}
+	agentName := NormalizeNamedSessionTarget(strings.TrimSpace(b.Metadata["agent_name"]))
+	alias := NormalizeNamedSessionTarget(strings.TrimSpace(b.Metadata["alias"]))
+	template := NormalizeNamedSessionTarget(strings.TrimSpace(b.Metadata["template"]))
+	if agentName == "" || alias == "" || template == "" {
+		return false
+	}
+	return agentName == backing && alias == identity && template == backing
+}
+
 // NamedSessionContinuityEligible reports whether a bead can preserve named session continuity.
 func NamedSessionContinuityEligible(b beads.Bead) bool {
 	continuity := strings.TrimSpace(b.Metadata["continuity_eligible"])
@@ -289,18 +325,25 @@ func lookupConfiguredNamedSession(store beads.Store, spec NamedSessionSpec, incl
 		}
 	}
 
+	var aliasMatches []beads.Bead
+	if spec.Identity != "" {
+		matches, err := listConfiguredNamedSessionBeadsByMetadata(store, "alias", spec.Identity)
+		if err != nil {
+			return ConfiguredNamedSessionLookup{}, fmt.Errorf("listing alias candidates: %w", err)
+		}
+		aliasMatches = matches
+		candidates = appendUniqueNamedSessionCandidates(candidates, seen, matches)
+		if bead, ok := FindCanonicalNamedSessionBead(candidates, spec); ok {
+			return ConfiguredNamedSessionLookup{Canonical: bead, HasCanonical: true}, nil
+		}
+	}
+
 	if !includeConflict {
 		return ConfiguredNamedSessionLookup{}, nil
 	}
 
 	conflictCandidates := append([]beads.Bead{}, runtimeSessionNameMatches...)
-	if spec.Identity != "" {
-		matches, err := listConfiguredNamedSessionBeadsByMetadata(store, "alias", spec.Identity)
-		if err != nil {
-			return ConfiguredNamedSessionLookup{}, fmt.Errorf("listing alias conflicts: %w", err)
-		}
-		conflictCandidates = appendUniqueNamedSessionCandidates(conflictCandidates, make(map[string]bool, len(conflictCandidates)+len(matches)), matches)
-	}
+	conflictCandidates = appendUniqueNamedSessionCandidates(conflictCandidates, make(map[string]bool, len(conflictCandidates)+len(aliasMatches)), aliasMatches)
 	if bead, conflict := FindNamedSessionConflict(conflictCandidates, spec); conflict {
 		return ConfiguredNamedSessionLookup{Conflict: bead, HasConflict: true}, nil
 	}
@@ -491,7 +534,19 @@ func closedNamedSessionReopenEligible(b beads.Bead) bool {
 	return true
 }
 
-// FindCanonicalNamedSessionBead finds the active bead that owns a configured named session.
+// FindCanonicalNamedSessionBead finds the active bead that owns a
+// configured named session. Lookup proceeds in three branches:
+//
+//  1. Strict: configured_named_session=true && configured_named_identity matches.
+//  2. Loose: NamedSessionBeadMatchesSpec && session_name matches.
+//  3. Liberal: BeadIsLikelyConfiguredNamedOwner. Tie-broken by
+//     continuation_epoch desc, then last_woke_at desc, then updated_at desc.
+//
+// Branch 3 covers session beads created via paths that set
+// agent_name/alias/template but omitted the configured_named_* metadata
+// family. The reconciler converges those beads to branch-1 state via
+// metadata backfill; the liberal resolver branch is the read-side fallback
+// so mail-send stays functional in the meantime.
 func FindCanonicalNamedSessionBead(candidates []beads.Bead, spec NamedSessionSpec) (beads.Bead, bool) {
 	identity := NormalizeNamedSessionTarget(spec.Identity)
 	for _, b := range candidates {
@@ -514,7 +569,69 @@ func FindCanonicalNamedSessionBead(candidates []beads.Bead, spec NamedSessionSpe
 			return b, true
 		}
 	}
+	var best beads.Bead
+	have := false
+	for _, b := range candidates {
+		if !NamedSessionContinuityEligible(b) {
+			continue
+		}
+		if !BeadIsLikelyConfiguredNamedOwner(b, spec) {
+			continue
+		}
+		if !have || liberalCandidatePreferred(b, best) {
+			best = b
+			have = true
+		}
+	}
+	if have {
+		return best, true
+	}
 	return beads.Bead{}, false
+}
+
+// liberalCandidatePreferred reports whether candidate a should win
+// over current best b under FindCanonicalNamedSessionBead's liberal
+// tie-break: continuation_epoch desc, then last_woke_at desc, then
+// updated_at desc. Empty/unparseable epoch and timestamp values sort
+// after their populated counterparts.
+func liberalCandidatePreferred(a, b beads.Bead) bool {
+	if ea, eb := parseContinuationEpoch(a), parseContinuationEpoch(b); ea != eb {
+		return ea > eb
+	}
+	if la, lb := parseSessionMetadataTime(a, "last_woke_at"), parseSessionMetadataTime(b, "last_woke_at"); !la.Equal(lb) {
+		return la.After(lb)
+	}
+	ua := parseSessionMetadataTime(a, "updated_at")
+	ub := parseSessionMetadataTime(b, "updated_at")
+	return ua.After(ub)
+}
+
+// parseContinuationEpoch reads bead.Metadata["continuation_epoch"]
+// as a non-negative integer. Returns 0 when missing or unparseable.
+func parseContinuationEpoch(b beads.Bead) int64 {
+	value := strings.TrimSpace(b.Metadata["continuation_epoch"])
+	if value == "" {
+		return 0
+	}
+	epoch, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || epoch < 0 {
+		return 0
+	}
+	return epoch
+}
+
+// parseSessionMetadataTime reads bead.Metadata[key] as an RFC3339
+// timestamp. Returns the zero time.Time when missing or unparseable.
+func parseSessionMetadataTime(b beads.Bead, key string) time.Time {
+	value := strings.TrimSpace(b.Metadata[key])
+	if value == "" {
+		return time.Time{}
+	}
+	ts, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return time.Time{}
+	}
+	return ts
 }
 
 // FindConflictingNamedSessionSpecForBead finds the configured named session blocked by a bead.

@@ -1426,6 +1426,19 @@ func (cr *CityRuntime) beadReconcileTick(ctx context.Context, result DesiredStat
 		sessionBeads, sessionQueryPartial = cr.loadSessionBeadSnapshotWithPartial()
 		result.SessionQueryPartial = result.SessionQueryPartial || sessionQueryPartial
 	}
+	repaired, repairErr := cr.repairConfiguredNamedSessionMetadata(ctx, sessionBeads)
+	if repairErr != nil {
+		stderr := cr.stderr
+		if stderr == nil {
+			stderr = io.Discard
+		}
+		fmt.Fprintf(stderr, "repairConfiguredNamedSessionMetadata: %v\n", repairErr) //nolint:errcheck
+	}
+	if repaired > 0 {
+		var sessionQueryPartial bool
+		sessionBeads, sessionQueryPartial = cr.loadSessionBeadSnapshotWithPartial()
+		result.SessionQueryPartial = result.SessionQueryPartial || sessionQueryPartial
+	}
 	rigStores := cr.rigBeadStores()
 	assignedWorkBeads := result.AssignedWorkBeads
 	assignedWorkStoreRefs := result.AssignedWorkStoreRefs

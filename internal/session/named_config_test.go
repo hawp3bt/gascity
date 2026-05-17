@@ -95,6 +95,199 @@ func TestFindCanonicalNamedSessionBead_SkipsFailedCreate(t *testing.T) {
 	}
 }
 
+func TestFindCanonicalNamedSessionBead_LiberalBranch(t *testing.T) {
+	spec := liberalNamedSessionSpec()
+	candidate := liberalNamedSessionCandidate("candidate", spec)
+
+	bead, ok := FindCanonicalNamedSessionBead([]beads.Bead{candidate}, spec)
+	if !ok || bead.ID != candidate.ID {
+		t.Fatalf("liberal branch missed bead with full three-key match")
+	}
+}
+
+func TestFindCanonicalNamedSessionBead_LiberalBranch_TieBreak(t *testing.T) {
+	spec := liberalNamedSessionSpec()
+	a := liberalNamedSessionCandidate("a", spec)
+	a.Metadata["continuation_epoch"] = "2"
+	b := liberalNamedSessionCandidate("b", spec)
+	b.Metadata["continuation_epoch"] = "3"
+
+	bead, ok := FindCanonicalNamedSessionBead([]beads.Bead{a, b}, spec)
+	if !ok || bead.ID != b.ID {
+		t.Fatalf("tie-break by continuation_epoch desc: got %s, want %s", bead.ID, b.ID)
+	}
+
+	t.Run("EpochsEqualLastWokeWins", func(t *testing.T) {
+		a := liberalNamedSessionCandidate("a", spec)
+		a.Metadata["continuation_epoch"] = "3"
+		a.Metadata["last_woke_at"] = "2026-05-17T18:00:00Z"
+		b := liberalNamedSessionCandidate("b", spec)
+		b.Metadata["continuation_epoch"] = "3"
+		b.Metadata["last_woke_at"] = "2026-05-17T18:00:01Z"
+
+		bead, ok := FindCanonicalNamedSessionBead([]beads.Bead{a, b}, spec)
+		if !ok || bead.ID != b.ID {
+			t.Fatalf("tie-break by last_woke_at desc: got %s, want %s", bead.ID, b.ID)
+		}
+	})
+
+	t.Run("EpochsAndLastWokeEqualUpdatedAtWins", func(t *testing.T) {
+		a := liberalNamedSessionCandidate("a", spec)
+		a.Metadata["continuation_epoch"] = "3"
+		a.Metadata["last_woke_at"] = "2026-05-17T18:00:00Z"
+		a.Metadata["updated_at"] = "2026-05-17T18:00:00Z"
+		b := liberalNamedSessionCandidate("b", spec)
+		b.Metadata["continuation_epoch"] = "3"
+		b.Metadata["last_woke_at"] = "2026-05-17T18:00:00Z"
+		b.Metadata["updated_at"] = "2026-05-17T18:00:01Z"
+
+		bead, ok := FindCanonicalNamedSessionBead([]beads.Bead{a, b}, spec)
+		if !ok || bead.ID != b.ID {
+			t.Fatalf("tie-break by updated_at desc: got %s, want %s", bead.ID, b.ID)
+		}
+	})
+}
+
+func TestFindCanonicalNamedSessionBead_StrictWinsOverLiberal(t *testing.T) {
+	spec := liberalNamedSessionSpec()
+	liberal := liberalNamedSessionCandidate("liberal", spec)
+	strict := liberalNamedSessionCandidate("strict", spec)
+	strict.Metadata[NamedSessionMetadataKey] = "true"
+	strict.Metadata[NamedSessionIdentityMetadata] = spec.Identity
+
+	bead, ok := FindCanonicalNamedSessionBead([]beads.Bead{liberal, strict}, spec)
+	if !ok || bead.ID != strict.ID {
+		t.Fatalf("liberal branch returned instead of strict canonical owner")
+	}
+}
+
+func TestFindCanonicalNamedSessionBead_LiberalDoesNotMatchClosed(t *testing.T) {
+	spec := liberalNamedSessionSpec()
+	candidate := liberalNamedSessionCandidate("candidate", spec)
+	candidate.Status = "closed"
+
+	if bead, ok := FindCanonicalNamedSessionBead([]beads.Bead{candidate}, spec); ok {
+		t.Fatalf("liberal branch returned a closed bead: %s", bead.ID)
+	}
+}
+
+func TestFindCanonicalNamedSessionBead_LiberalRequiresAllThreeKeys(t *testing.T) {
+	spec := liberalNamedSessionSpec()
+	for _, key := range []string{"agent_name", "alias", "template"} {
+		t.Run(key, func(t *testing.T) {
+			candidate := liberalNamedSessionCandidate("candidate", spec)
+			candidate.Metadata[key] = "different"
+
+			if _, ok := FindCanonicalNamedSessionBead([]beads.Bead{candidate}, spec); ok {
+				t.Fatalf("liberal branch matched with %q mismatching", key)
+			}
+		})
+	}
+}
+
+func TestBeadConflictsWithNamedSession_Unchanged(t *testing.T) {
+	spec := NamedSessionSpec{
+		Agent:       &config.Agent{Name: "runner", Dir: "rig"},
+		Identity:    "rig/runner",
+		SessionName: "session-city-rig-runner",
+	}
+	tests := []struct {
+		name string
+		bead beads.Bead
+		want bool
+	}{
+		{
+			name: "closed-conflict",
+			bead: beads.Bead{
+				ID:     "closed-conflict",
+				Type:   BeadType,
+				Status: "closed",
+				Labels: []string{LabelSession},
+				Metadata: map[string]string{
+					"alias": "rig/runner",
+				},
+			},
+			want: true,
+		},
+		{
+			name: "canonical",
+			bead: beads.Bead{
+				ID:     "canonical",
+				Type:   BeadType,
+				Status: "open",
+				Labels: []string{LabelSession},
+				Metadata: map[string]string{
+					NamedSessionMetadataKey:      "true",
+					NamedSessionIdentityMetadata: "rig/runner",
+					"session_name":               "session-city-rig-runner",
+					"template":                   "rig/runner",
+				},
+			},
+			want: false,
+		},
+		{
+			name: "non-session",
+			bead: beads.Bead{
+				ID:     "non-session",
+				Type:   "task",
+				Status: "open",
+				Metadata: map[string]string{
+					"alias": "rig/runner",
+				},
+			},
+			want: true,
+		},
+		{
+			name: "live-conflict",
+			bead: beads.Bead{
+				ID:     "live-conflict",
+				Type:   BeadType,
+				Status: "open",
+				Labels: []string{LabelSession},
+				Metadata: map[string]string{
+					"alias":    "rig/runner",
+					"template": "rig/other",
+				},
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := BeadConflictsWithNamedSession(tt.bead, spec)
+			if got != tt.want {
+				t.Fatalf("BeadConflictsWithNamedSession(%s, %s) = %v, want %v", tt.bead.ID, spec.Identity, got, tt.want)
+			}
+		})
+	}
+}
+
+func liberalNamedSessionSpec() NamedSessionSpec {
+	return NamedSessionSpec{
+		Agent:       &config.Agent{Name: "runner", Dir: "rig"},
+		Identity:    "rig/runner",
+		SessionName: "session-city-rig-runner",
+		Mode:        "on_demand",
+	}
+}
+
+func liberalNamedSessionCandidate(id string, spec NamedSessionSpec) beads.Bead {
+	backing := NamedSessionBackingTemplate(spec)
+	return beads.Bead{
+		ID:     id,
+		Type:   BeadType,
+		Status: "open",
+		Labels: []string{LabelSession},
+		Metadata: map[string]string{
+			"agent_name": backing,
+			"alias":      spec.Identity,
+			"template":   backing,
+			"updated_at": "2026-05-17T18:00:00Z",
+		},
+	}
+}
+
 func TestFindNamedSessionConflict_SelectsLiveNonCanonicalConflict(t *testing.T) {
 	spec := NamedSessionSpec{
 		Agent:       &config.Agent{Name: "worker", Dir: "myrig"},

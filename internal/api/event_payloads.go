@@ -230,6 +230,25 @@ type SessionLifecyclePayload struct {
 // IsEventPayload marks SessionLifecyclePayload as an events.Payload variant.
 func (SessionLifecyclePayload) IsEventPayload() {}
 
+// SessionMetadataRepairReasonMissingMetadata is the Reason value emitted
+// when the backfill closes a configured_named_session metadata gap. Single
+// value today; reserved as an enum for future repair reasons.
+const SessionMetadataRepairReasonMissingMetadata = "missing_configured_named_metadata"
+
+// SessionMetadataRepairedPayload records a successful reconciler-driven
+// backfill of the configured_named_* metadata family onto a session bead.
+// Emitted exactly once per repaired bead per reconcile cycle by
+// (*CityRuntime).repairConfiguredNamedSessionMetadata.
+type SessionMetadataRepairedPayload struct {
+	BeadID                  string `json:"bead_id"`
+	ConfiguredNamedIdentity string `json:"configured_named_identity"`
+	ConfiguredNamedMode     string `json:"configured_named_mode"`
+	Reason                  string `json:"reason"`
+}
+
+// IsEventPayload marks SessionMetadataRepairedPayload as an events.Payload variant.
+func (SessionMetadataRepairedPayload) IsEventPayload() {}
+
 // SessionLifecyclePayloadJSON builds the JSON wire form of a
 // SessionLifecyclePayload for attachment to an events.Event.Payload
 // field. Template and Reason are emitted only when non-empty.
@@ -398,6 +417,7 @@ func init() {
 	events.RegisterPayload(events.SessionQuarantined, events.NoPayload{})
 	events.RegisterPayload(events.SessionIdleKilled, events.NoPayload{})
 	events.RegisterPayload(events.SessionMaxAgeKilled, events.NoPayload{})
+	events.RegisterPayload(events.SessionMetadataRepaired, SessionMetadataRepairedPayload{})
 	events.RegisterPayload(events.SessionSuspended, events.NoPayload{})
 	events.RegisterPayload(events.SessionUpdated, events.NoPayload{})
 	events.RegisterPayload(events.ConvoyCreated, events.NoPayload{})

@@ -748,7 +748,7 @@ export type EventEmitRequest = {
     type: string;
 };
 
-export type EventPayload = AdapterEventPayload | BeadEventPayload | BoundEventPayload | CityCreateSucceededPayload | CityLifecyclePayload | CityUnregisterSucceededPayload | GroupCreatedEventPayload | InboundEventPayload | MailEventPayload | NoPayload | OutboundEventPayload | ProjectIdentityStampedPayload | RequestFailedPayload | RotatedPayload | SessionCreateSucceededPayload | SessionLifecyclePayload | SessionMessageSucceededPayload | SessionSubmitSucceededPayload | SupervisorFsPressureSkippedTickPayload | UnboundEventPayload | WorkerOperationEventPayload;
+export type EventPayload = AdapterEventPayload | BeadEventPayload | BoundEventPayload | CityCreateSucceededPayload | CityLifecyclePayload | CityUnregisterSucceededPayload | GroupCreatedEventPayload | InboundEventPayload | MailEventPayload | NoPayload | OutboundEventPayload | ProjectIdentityStampedPayload | RequestFailedPayload | RotatedPayload | SessionCreateSucceededPayload | SessionLifecyclePayload | SessionMessageSucceededPayload | SessionMetadataRepairedPayload | SessionSubmitSucceededPayload | SupervisorFsPressureSkippedTickPayload | UnboundEventPayload | WorkerOperationEventPayload;
 
 export type EventRotateAnchor = {
     /**
@@ -2454,6 +2454,13 @@ export type SessionMessageSucceededPayload = {
     session_id: string;
 };
 
+export type SessionMetadataRepairedPayload = {
+    bead_id: string;
+    configured_named_identity: string;
+    configured_named_mode: string;
+    reason: string;
+};
+
 export type SessionPatchBody = {
     /**
      * Session alias. Empty string clears the alias.
@@ -3036,6 +3043,8 @@ export type TypedEventStreamEnvelope = ({
 } & TypedEventStreamEnvelopeSessionIdleKilled) | ({
     type: 'session.max_age_killed';
 } & TypedEventStreamEnvelopeSessionMaxAgeKilled) | ({
+    type: 'session.metadata_repaired';
+} & TypedEventStreamEnvelopeSessionMetadataRepaired) | ({
     type: 'session.quarantined';
 } & TypedEventStreamEnvelopeSessionQuarantined) | ({
     type: 'session.stopped';
@@ -3644,6 +3653,20 @@ export type TypedEventStreamEnvelopeSessionMaxAgeKilled = {
 };
 
 /**
+ * TypedEventStreamEnvelope session.metadata_repaired
+ */
+export type TypedEventStreamEnvelopeSessionMetadataRepaired = {
+    actor: string;
+    message?: string;
+    payload: SessionMetadataRepairedPayload;
+    seq: number;
+    subject?: string;
+    ts: string;
+    type: 'session.metadata_repaired';
+    workflow?: WorkflowEventProjection;
+};
+
+/**
  * TypedEventStreamEnvelope session.quarantined
  */
 export type TypedEventStreamEnvelopeSessionQuarantined = {
@@ -3843,6 +3866,8 @@ export type TypedTaggedEventStreamEnvelope = ({
 } & TypedTaggedEventStreamEnvelopeSessionIdleKilled) | ({
     type: 'session.max_age_killed';
 } & TypedTaggedEventStreamEnvelopeSessionMaxAgeKilled) | ({
+    type: 'session.metadata_repaired';
+} & TypedTaggedEventStreamEnvelopeSessionMetadataRepaired) | ({
     type: 'session.quarantined';
 } & TypedTaggedEventStreamEnvelopeSessionQuarantined) | ({
     type: 'session.stopped';
@@ -4489,6 +4514,21 @@ export type TypedTaggedEventStreamEnvelopeSessionMaxAgeKilled = {
     subject?: string;
     ts: string;
     type: 'session.max_age_killed';
+    workflow?: WorkflowEventProjection;
+};
+
+/**
+ * TypedTaggedEventStreamEnvelope session.metadata_repaired
+ */
+export type TypedTaggedEventStreamEnvelopeSessionMetadataRepaired = {
+    actor: string;
+    city: string;
+    message?: string;
+    payload: SessionMetadataRepairedPayload;
+    seq: number;
+    subject?: string;
+    ts: string;
+    type: 'session.metadata_repaired';
     workflow?: WorkflowEventProjection;
 };
 

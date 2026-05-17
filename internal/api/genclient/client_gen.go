@@ -2362,6 +2362,14 @@ type SessionMessageSucceededPayload struct {
 	SessionId string `json:"session_id"`
 }
 
+// SessionMetadataRepairedPayload defines model for SessionMetadataRepairedPayload.
+type SessionMetadataRepairedPayload struct {
+	BeadId                  string `json:"bead_id"`
+	ConfiguredNamedIdentity string `json:"configured_named_identity"`
+	ConfiguredNamedMode     string `json:"configured_named_mode"`
+	Reason                  string `json:"reason"`
+}
+
 // SessionPatchBody defines model for SessionPatchBody.
 type SessionPatchBody struct {
 	// Alias Session alias. Empty string clears the alias.
@@ -3268,6 +3276,18 @@ type TypedEventStreamEnvelopeSessionMaxAgeKilled struct {
 	Workflow *WorkflowEventProjection `json:"workflow,omitempty"`
 }
 
+// TypedEventStreamEnvelopeSessionMetadataRepaired defines model for TypedEventStreamEnvelopeSessionMetadataRepaired.
+type TypedEventStreamEnvelopeSessionMetadataRepaired struct {
+	Actor    string                         `json:"actor"`
+	Message  *string                        `json:"message,omitempty"`
+	Payload  SessionMetadataRepairedPayload `json:"payload"`
+	Seq      int64                          `json:"seq"`
+	Subject  *string                        `json:"subject,omitempty"`
+	Ts       time.Time                      `json:"ts"`
+	Type     string                         `json:"type"`
+	Workflow *WorkflowEventProjection       `json:"workflow,omitempty"`
+}
+
 // TypedEventStreamEnvelopeSessionQuarantined defines model for TypedEventStreamEnvelopeSessionQuarantined.
 type TypedEventStreamEnvelopeSessionQuarantined struct {
 	Actor    string                   `json:"actor"`
@@ -3913,6 +3933,19 @@ type TypedTaggedEventStreamEnvelopeSessionMaxAgeKilled struct {
 	Ts       time.Time                `json:"ts"`
 	Type     string                   `json:"type"`
 	Workflow *WorkflowEventProjection `json:"workflow,omitempty"`
+}
+
+// TypedTaggedEventStreamEnvelopeSessionMetadataRepaired defines model for TypedTaggedEventStreamEnvelopeSessionMetadataRepaired.
+type TypedTaggedEventStreamEnvelopeSessionMetadataRepaired struct {
+	Actor    string                         `json:"actor"`
+	City     string                         `json:"city"`
+	Message  *string                        `json:"message,omitempty"`
+	Payload  SessionMetadataRepairedPayload `json:"payload"`
+	Seq      int64                          `json:"seq"`
+	Subject  *string                        `json:"subject,omitempty"`
+	Ts       time.Time                      `json:"ts"`
+	Type     string                         `json:"type"`
+	Workflow *WorkflowEventProjection       `json:"workflow,omitempty"`
 }
 
 // TypedTaggedEventStreamEnvelopeSessionQuarantined defines model for TypedTaggedEventStreamEnvelopeSessionQuarantined.
@@ -5654,6 +5687,32 @@ func (t *EventPayload) MergeSessionMessageSucceededPayload(v SessionMessageSucce
 	return err
 }
 
+// AsSessionMetadataRepairedPayload returns the union data inside the EventPayload as a SessionMetadataRepairedPayload
+func (t EventPayload) AsSessionMetadataRepairedPayload() (SessionMetadataRepairedPayload, error) {
+	var body SessionMetadataRepairedPayload
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromSessionMetadataRepairedPayload overwrites any union data inside the EventPayload as the provided SessionMetadataRepairedPayload
+func (t *EventPayload) FromSessionMetadataRepairedPayload(v SessionMetadataRepairedPayload) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeSessionMetadataRepairedPayload performs a merge with any union data inside the EventPayload, using the provided SessionMetadataRepairedPayload
+func (t *EventPayload) MergeSessionMetadataRepairedPayload(v SessionMetadataRepairedPayload) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 // AsSessionSubmitSucceededPayload returns the union data inside the EventPayload as a SessionSubmitSucceededPayload
 func (t EventPayload) AsSessionSubmitSucceededPayload() (SessionSubmitSucceededPayload, error) {
 	var body SessionSubmitSucceededPayload
@@ -7004,6 +7063,34 @@ func (t *TypedEventStreamEnvelope) MergeTypedEventStreamEnvelopeSessionMaxAgeKil
 	return err
 }
 
+// AsTypedEventStreamEnvelopeSessionMetadataRepaired returns the union data inside the TypedEventStreamEnvelope as a TypedEventStreamEnvelopeSessionMetadataRepaired
+func (t TypedEventStreamEnvelope) AsTypedEventStreamEnvelopeSessionMetadataRepaired() (TypedEventStreamEnvelopeSessionMetadataRepaired, error) {
+	var body TypedEventStreamEnvelopeSessionMetadataRepaired
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromTypedEventStreamEnvelopeSessionMetadataRepaired overwrites any union data inside the TypedEventStreamEnvelope as the provided TypedEventStreamEnvelopeSessionMetadataRepaired
+func (t *TypedEventStreamEnvelope) FromTypedEventStreamEnvelopeSessionMetadataRepaired(v TypedEventStreamEnvelopeSessionMetadataRepaired) error {
+	v.Type = "session.metadata_repaired"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeTypedEventStreamEnvelopeSessionMetadataRepaired performs a merge with any union data inside the TypedEventStreamEnvelope, using the provided TypedEventStreamEnvelopeSessionMetadataRepaired
+func (t *TypedEventStreamEnvelope) MergeTypedEventStreamEnvelopeSessionMetadataRepaired(v TypedEventStreamEnvelopeSessionMetadataRepaired) error {
+	v.Type = "session.metadata_repaired"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 // AsTypedEventStreamEnvelopeSessionQuarantined returns the union data inside the TypedEventStreamEnvelope as a TypedEventStreamEnvelopeSessionQuarantined
 func (t TypedEventStreamEnvelope) AsTypedEventStreamEnvelopeSessionQuarantined() (TypedEventStreamEnvelopeSessionQuarantined, error) {
 	var body TypedEventStreamEnvelopeSessionQuarantined
@@ -7354,6 +7441,8 @@ func (t TypedEventStreamEnvelope) ValueByDiscriminator() (interface{}, error) {
 		return t.AsTypedEventStreamEnvelopeSessionIdleKilled()
 	case "session.max_age_killed":
 		return t.AsTypedEventStreamEnvelopeSessionMaxAgeKilled()
+	case "session.metadata_repaired":
+		return t.AsTypedEventStreamEnvelopeSessionMetadataRepaired()
 	case "session.quarantined":
 		return t.AsTypedEventStreamEnvelopeSessionQuarantined()
 	case "session.stopped":
@@ -8533,6 +8622,34 @@ func (t *TypedTaggedEventStreamEnvelope) MergeTypedTaggedEventStreamEnvelopeSess
 	return err
 }
 
+// AsTypedTaggedEventStreamEnvelopeSessionMetadataRepaired returns the union data inside the TypedTaggedEventStreamEnvelope as a TypedTaggedEventStreamEnvelopeSessionMetadataRepaired
+func (t TypedTaggedEventStreamEnvelope) AsTypedTaggedEventStreamEnvelopeSessionMetadataRepaired() (TypedTaggedEventStreamEnvelopeSessionMetadataRepaired, error) {
+	var body TypedTaggedEventStreamEnvelopeSessionMetadataRepaired
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromTypedTaggedEventStreamEnvelopeSessionMetadataRepaired overwrites any union data inside the TypedTaggedEventStreamEnvelope as the provided TypedTaggedEventStreamEnvelopeSessionMetadataRepaired
+func (t *TypedTaggedEventStreamEnvelope) FromTypedTaggedEventStreamEnvelopeSessionMetadataRepaired(v TypedTaggedEventStreamEnvelopeSessionMetadataRepaired) error {
+	v.Type = "session.metadata_repaired"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeTypedTaggedEventStreamEnvelopeSessionMetadataRepaired performs a merge with any union data inside the TypedTaggedEventStreamEnvelope, using the provided TypedTaggedEventStreamEnvelopeSessionMetadataRepaired
+func (t *TypedTaggedEventStreamEnvelope) MergeTypedTaggedEventStreamEnvelopeSessionMetadataRepaired(v TypedTaggedEventStreamEnvelopeSessionMetadataRepaired) error {
+	v.Type = "session.metadata_repaired"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 // AsTypedTaggedEventStreamEnvelopeSessionQuarantined returns the union data inside the TypedTaggedEventStreamEnvelope as a TypedTaggedEventStreamEnvelopeSessionQuarantined
 func (t TypedTaggedEventStreamEnvelope) AsTypedTaggedEventStreamEnvelopeSessionQuarantined() (TypedTaggedEventStreamEnvelopeSessionQuarantined, error) {
 	var body TypedTaggedEventStreamEnvelopeSessionQuarantined
@@ -8883,6 +9000,8 @@ func (t TypedTaggedEventStreamEnvelope) ValueByDiscriminator() (interface{}, err
 		return t.AsTypedTaggedEventStreamEnvelopeSessionIdleKilled()
 	case "session.max_age_killed":
 		return t.AsTypedTaggedEventStreamEnvelopeSessionMaxAgeKilled()
+	case "session.metadata_repaired":
+		return t.AsTypedTaggedEventStreamEnvelopeSessionMetadataRepaired()
 	case "session.quarantined":
 		return t.AsTypedTaggedEventStreamEnvelopeSessionQuarantined()
 	case "session.stopped":
