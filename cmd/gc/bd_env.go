@@ -906,6 +906,7 @@ func bdRuntimeEnvWithError(cityPath string) (map[string]string, error) {
 	// dolt.auto-start:false config (beads resolveAutoStart priority bug) and
 	// starts rogue servers from the agent's cwd with the wrong data_dir.
 	env["BEADS_DOLT_AUTO_START"] = "0"
+	applyBdCLIRemoteSyncOptOut(env)
 	if !cityUsesBdStoreContract(cityPath) {
 		return env, nil
 	}
@@ -945,6 +946,7 @@ func cityRuntimeProcessEnvWithError(cityPath string) ([]string, error) {
 	var projectionErr error
 	if cityUsesBdStoreContract(cityPath) {
 		source := map[string]string{"BEADS_DOLT_AUTO_START": "0"}
+		applyBdCLIRemoteSyncOptOut(source)
 		if usedPostgres, err := applyCityPostgresBackendEnv(source, cityPath); err != nil {
 			clearProjectedDoltEnv(source)
 			clearProjectedPostgresEnv(source)
@@ -957,7 +959,7 @@ func cityRuntimeProcessEnvWithError(cityPath string) ([]string, error) {
 			}
 		}
 		keys := execProjectedBackendEnvKeys()
-		keys = append(keys, "BEADS_DOLT_AUTO_START")
+		keys = append(keys, "BEADS_DOLT_AUTO_START", "BD_DOLT_SYNC_CLI_REMOTES", "BEADS_DOLT_SYNC_CLI_REMOTES")
 		for _, key := range keys {
 			if value, ok := source[key]; ok {
 				overrides[key] = value
@@ -965,6 +967,14 @@ func cityRuntimeProcessEnvWithError(cityPath string) ([]string, error) {
 		}
 	}
 	return mergeRuntimeEnv(os.Environ(), overrides), projectionErr
+}
+
+func applyBdCLIRemoteSyncOptOut(env map[string]string) {
+	if env == nil {
+		return
+	}
+	env["BD_DOLT_SYNC_CLI_REMOTES"] = "false"
+	env["BEADS_DOLT_SYNC_CLI_REMOTES"] = "false"
 }
 
 func mirrorBeadsDoltEnv(env map[string]string) {
@@ -1034,11 +1044,13 @@ func mergeRuntimeEnv(environ []string, overrides map[string]string) []string {
 		"BEADS_DOLT_SERVER_HOST",
 		"BEADS_DOLT_SERVER_PORT",
 		"BEADS_DOLT_SERVER_USER",
+		"BEADS_DOLT_SYNC_CLI_REMOTES",
 		"BEADS_POSTGRES_DATABASE",
 		"BEADS_POSTGRES_HOST",
 		"BEADS_POSTGRES_PASSWORD",
 		"BEADS_POSTGRES_PORT",
 		"BEADS_POSTGRES_USER",
+		"BD_DOLT_SYNC_CLI_REMOTES",
 		"GC_CITY",
 		"GC_CITY_ROOT", // kept for stripping: no code emits this anymore, but inherited values must be cleaned
 		"GC_CITY_PATH",

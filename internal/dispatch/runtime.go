@@ -373,7 +373,7 @@ func loadScopeSnapshotWithBody(store beads.Store, rootID, scopeRef string, body 
 }
 
 func listByWorkflowRootAndScope(store beads.Store, rootID, scopeRef string) ([]beads.Bead, error) {
-	return store.List(beads.ListQuery{
+	return beads.HandlesFor(store).Live.List(beads.ListQuery{
 		Metadata: map[string]string{
 			"gc.root_bead_id": rootID,
 			"gc.scope_ref":    scopeRef,
@@ -383,7 +383,7 @@ func listByWorkflowRootAndScope(store beads.Store, rootID, scopeRef string) ([]b
 }
 
 func listActiveByWorkflowRootAndScope(store beads.Store, rootID, scopeRef string) ([]beads.Bead, error) {
-	return store.List(beads.ListQuery{
+	return beads.HandlesFor(store).Live.List(beads.ListQuery{
 		Metadata: map[string]string{
 			"gc.root_bead_id": rootID,
 			"gc.scope_ref":    scopeRef,
@@ -854,7 +854,7 @@ func sourceWorkflowChildSources(store beads.Store, sourceBeadID, sourceStoreRef,
 	if store == nil || sourceBeadID == "" {
 		return nil, nil
 	}
-	candidates, err := store.List(beads.ListQuery{
+	candidates, err := beads.HandlesFor(store).Live.List(beads.ListQuery{
 		IncludeClosed: true,
 		Metadata: map[string]string{
 			"gc.source_bead_id": sourceBeadID,
@@ -1109,7 +1109,7 @@ func resolveScopeBodyOnce(store beads.Store, rootID, scopeRef string) (beads.Bea
 }
 
 func resolveScopeBodyByRole(store beads.Store, rootID, scopeRef string, includeClosed bool) (beads.Bead, bool, error) {
-	matches, err := store.List(beads.ListQuery{
+	matches, err := beads.HandlesFor(store).Live.List(beads.ListQuery{
 		Metadata: map[string]string{
 			"gc.root_bead_id": rootID,
 			"gc.kind":         "scope",
@@ -1154,7 +1154,7 @@ func sortedPendingIDs(pending map[string]beads.Bead) []string {
 }
 
 func listByWorkflowRoot(store beads.Store, rootID string) ([]beads.Bead, error) {
-	all, err := store.List(beads.ListQuery{
+	all, err := beads.HandlesFor(store).Live.List(beads.ListQuery{
 		Metadata:      map[string]string{"gc.root_bead_id": rootID},
 		IncludeClosed: true,
 	})
