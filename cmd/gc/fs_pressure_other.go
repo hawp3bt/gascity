@@ -8,6 +8,8 @@ var fsPressurePath = ""
 
 // fsPressureReadFile is unused on non-Linux but declared so tests on
 // non-Linux platforms can still reference the symbol.
+//
+//nolint:unused
 var fsPressureReadFile = func(string) ([]byte, error) { return nil, nil }
 
 // readFSPressureAvg60 always returns 0 on non-Linux so the backpressure gate
