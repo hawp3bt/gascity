@@ -146,9 +146,9 @@ Provider resolution happens later, at agent startup time, via
   `ResolveProvider`. All fields populated after resolution through the
   builtin + city + agent override chain.
 
-- **`PackSource`** (`internal/config/config.go`): Defines a remote
-  pack repository with git URL, ref, and optional subdirectory path.
-  Referenced by name in workspace/rig pack fields.
+- **`PackSource`** (`internal/config/config.go`): Legacy `[packs]`
+  compatibility shape. New PackV2 dependency manifests use
+  `[imports.*]` with `source` plus optional `version`.
 
 - **`PackMeta`** (`internal/config/config.go`): Metadata header from
   `pack.toml`. Contains name, version, schema version, optional
@@ -262,23 +262,16 @@ name = "worker"
 prompt_template = "prompts/worker.md"
 ```
 
-Multi-rig with pack and overrides (Level 5+):
+Multi-rig with overrides (Level 5+):
 
 ```toml
 [workspace]
 name = "my-city"
 provider = "claude"
-pack = "packs/my-pack"
-
-[packs.shared]
-source = "https://github.com/example/packs.git"
-ref = "v1.0"
-path = "my-pack"
 
 [[rigs]]
 name = "project-a"
 path = "/home/user/project-a"
-pack = "shared"
 
 [[rigs.overrides]]
 agent = "worker"
