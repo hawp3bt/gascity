@@ -37,6 +37,7 @@ const (
 	managedDoltTestModeEnv      = "GC_MANAGED_DOLT_TEST_MODE"
 	managedDoltTestParentPIDEnv = "GC_MANAGED_DOLT_TEST_PARENT_PID"
 	managedDoltTestWatchdogArg  = "__gc-managed-dolt-test-watchdog"
+	managedDoltTestParentPipeFD = 3
 )
 
 var (
@@ -210,27 +211,42 @@ func startManagedDoltSQLServerWithTestWatchdog(cityPath, configFile, logFilePath
 		_ = os.Remove(disarmFile)
 		return managedDoltStartedProcess{}, err
 	}
-	cmd := exec.Command(watchdogExecutable, managedDoltTestWatchdogArg, managedDoltTestParentPIDString(), configFile, logFilePath, disarmFile)
+	parentPipeRead, parentPipeWrite, err := os.Pipe()
+	if err != nil {
+		_ = os.Remove(disarmFile)
+		return managedDoltStartedProcess{}, fmt.Errorf("create dolt test watchdog parent pipe: %w", err)
+	}
+	cmd := exec.Command(watchdogExecutable, managedDoltTestWatchdogArg, managedDoltTestParentPIDString(), configFile, logFilePath, disarmFile, strconv.Itoa(managedDoltTestParentPipeFD))
 	cmd.Stderr = logFile
 	cmd.Stdin = nil
 	cmd.Env = doltServerEnv(os.Environ())
+	cmd.ExtraFiles = []*os.File{parentPipeRead}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		_ = parentPipeRead.Close()
+		_ = parentPipeWrite.Close()
 		_ = os.Remove(disarmFile)
 		return managedDoltStartedProcess{}, fmt.Errorf("prepare dolt test watchdog: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
+		_ = parentPipeRead.Close()
+		_ = parentPipeWrite.Close()
 		_ = os.Remove(disarmFile)
 		return managedDoltStartedProcess{}, fmt.Errorf("start dolt test watchdog: %w", err)
 	}
+	_ = parentPipeRead.Close()
 	pid, err := readManagedDoltTestWatchdogPID(stdout, cmd.Process.Pid)
 	if err != nil {
 		_ = terminateManagedDoltPID(cityPath, cmd.Process.Pid)
 		_ = cmd.Wait()
+		_ = parentPipeWrite.Close()
 		_ = os.Remove(disarmFile)
 		return managedDoltStartedProcess{}, err
 	}
-	go func() { _ = cmd.Wait() }()
+	go func() {
+		_ = cmd.Wait()
+		_ = parentPipeWrite.Close()
+	}()
 	started := managedDoltStartedProcess{
 		CityPath:    cityPath,
 		PID:         pid,
@@ -507,8 +523,8 @@ func runManagedDoltTestWatchdog(args []string, stdout, stderr *os.File) int {
 		fmt.Fprintln(stderr, "managed dolt test watchdog is only available in managed Dolt test mode") //nolint:errcheck
 		return 2
 	}
-	if len(args) != 4 {
-		fmt.Fprintf(stderr, "usage: %s <parent-pid> <config-file> <log-file> <disarm-file>\n", managedDoltTestWatchdogArg) //nolint:errcheck
+	if len(args) != 4 && len(args) != 5 {
+		fmt.Fprintf(stderr, "usage: %s <parent-pid> <config-file> <log-file> <disarm-file> [parent-pipe-fd]\n", managedDoltTestWatchdogArg) //nolint:errcheck
 		return 2
 	}
 	parentPID, err := strconv.Atoi(args[0])
@@ -519,6 +535,16 @@ func runManagedDoltTestWatchdog(args []string, stdout, stderr *os.File) int {
 	configFile := args[1]
 	logFilePath := args[2]
 	disarmFile := args[3]
+	var parentDone <-chan struct{}
+	if len(args) == 5 {
+		done, closeParentDone, err := managedDoltTestParentDone(args[4])
+		if err != nil {
+			fmt.Fprintf(stderr, "watch parent pipe: %v\n", err) //nolint:errcheck
+			return 2
+		}
+		parentDone = done
+		defer closeParentDone()
+	}
 	logFile, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		fmt.Fprintf(stderr, "open dolt log: %v\n", err) //nolint:errcheck
@@ -553,6 +579,10 @@ func runManagedDoltTestWatchdog(args []string, stdout, stderr *os.File) int {
 			_ = terminateManagedDoltPID("", cmd.Process.Pid)
 			<-done
 			return 0
+		case <-parentDone:
+			_ = terminateManagedDoltPID("", cmd.Process.Pid)
+			<-done
+			return 0
 		case <-ticker.C:
 			if _, err := os.Stat(disarmFile); err == nil {
 				_ = os.Remove(disarmFile)
@@ -570,6 +600,25 @@ func runManagedDoltTestWatchdog(args []string, stdout, stderr *os.File) int {
 			return 0
 		}
 	}
+}
+
+func managedDoltTestParentDone(rawFD string) (<-chan struct{}, func(), error) {
+	fd, err := strconv.Atoi(strings.TrimSpace(rawFD))
+	if err != nil || fd <= 2 {
+		return nil, nil, fmt.Errorf("invalid parent pipe fd %q", rawFD)
+	}
+	parentPipe := os.NewFile(uintptr(fd), "gc-managed-dolt-test-parent")
+	if parentPipe == nil {
+		return nil, nil, fmt.Errorf("open parent pipe fd %d", fd)
+	}
+	syscall.CloseOnExec(fd)
+	done := make(chan struct{})
+	go func() {
+		var buf [1]byte
+		_, _ = parentPipe.Read(buf[:])
+		close(done)
+	}()
+	return done, func() { _ = parentPipe.Close() }, nil
 }
 
 // doltServerEnv returns the environment applied to every managed dolt
