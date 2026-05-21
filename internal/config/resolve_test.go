@@ -36,7 +36,17 @@ func lookPathOnly(bins ...string) LookPathFunc {
 // --- ResolveProvider tests ---
 
 func TestResolveProviderAgentStartCommand(t *testing.T) {
-	agent := &Agent{Name: "mayor", StartCommand: "my-custom-cli --flag"}
+	delay := 1250
+	emitsPermissionWarning := true
+	agent := &Agent{
+		Name:                   "worker",
+		StartCommand:           "my-custom-cli --flag",
+		ReadyDelayMs:           &delay,
+		ReadyPromptPrefix:      "ready> ",
+		ProcessNames:           []string{"my-custom-cli"},
+		EmitsPermissionWarning: &emitsPermissionWarning,
+		ResumeCommand:          "my-custom-cli --resume {{.SessionKey}}",
+	}
 	rp, err := ResolveProvider(agent, nil, nil, lookPathNone)
 	if err != nil {
 		t.Fatalf("ResolveProvider: %v", err)
@@ -46,6 +56,21 @@ func TestResolveProviderAgentStartCommand(t *testing.T) {
 	}
 	if rp.PromptMode != "none" {
 		t.Errorf("PromptMode = %q, want %q", rp.PromptMode, "none")
+	}
+	if !reflect.DeepEqual(rp.ProcessNames, []string{"my-custom-cli"}) {
+		t.Errorf("ProcessNames = %v, want [my-custom-cli]", rp.ProcessNames)
+	}
+	if rp.ReadyDelayMs != delay {
+		t.Errorf("ReadyDelayMs = %d, want %d", rp.ReadyDelayMs, delay)
+	}
+	if rp.ReadyPromptPrefix != "ready> " {
+		t.Errorf("ReadyPromptPrefix = %q, want %q", rp.ReadyPromptPrefix, "ready> ")
+	}
+	if !rp.EmitsPermissionWarning {
+		t.Error("EmitsPermissionWarning = false, want true")
+	}
+	if rp.ResumeCommand != "my-custom-cli --resume {{.SessionKey}}" {
+		t.Errorf("ResumeCommand = %q, want agent resume command", rp.ResumeCommand)
 	}
 }
 

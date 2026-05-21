@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -195,6 +196,56 @@ func TestTemplateParamsToConfigNoneModeUsesNudge(t *testing.T) {
 	}
 	if cfg.Nudge != "You are an agent. Do work." {
 		t.Errorf("Nudge = %q, want startup prompt", cfg.Nudge)
+	}
+}
+
+func TestResolveTemplateControlDispatcherSuppressesStartupPrompt(t *testing.T) {
+	cityPath := t.TempDir()
+	fakeFS := fsys.NewFake()
+	promptPath := filepath.Join(cityPath, "prompts", "control-dispatcher.template.md")
+	if err := fakeFS.WriteFile(promptPath, []byte("startup prompt for {{.AgentName}}"), 0o644); err != nil {
+		t.Fatalf("write prompt template: %v", err)
+	}
+	params := &agentBuildParams{
+		fs:              fakeFS,
+		cityName:        "maintainer-city",
+		cityPath:        cityPath,
+		workspace:       &config.Workspace{Name: "maintainer-city"},
+		providers:       map[string]config.ProviderSpec{},
+		lookPath:        func(string) (string, error) { return "", fmt.Errorf("not found") },
+		beaconTime:      testBeaconTime,
+		sessionTemplate: "",
+		beadNames:       make(map[string]string),
+		stderr:          io.Discard,
+	}
+	agent := &config.Agent{
+		Name:           config.ControlDispatcherAgentName,
+		Dir:            "gascity",
+		PromptTemplate: "prompts/control-dispatcher.template.md",
+		StartCommand:   config.ControlDispatcherStartCommandFor("gascity/" + config.ControlDispatcherAgentName),
+		Nudge:          "configured startup nudge",
+		ProcessNames:   []string{"gc"},
+	}
+
+	tp, err := resolveTemplate(params, agent, agent.QualifiedName(), nil)
+	if err != nil {
+		t.Fatalf("resolveTemplate: %v", err)
+	}
+	if tp.Prompt != "" {
+		t.Fatalf("Prompt = %q, want empty for deterministic control dispatcher", tp.Prompt)
+	}
+	cfg := templateParamsToConfig(tp)
+	if cfg.PromptSuffix != "" {
+		t.Fatalf("PromptSuffix = %q, want empty", cfg.PromptSuffix)
+	}
+	if cfg.Nudge != "" {
+		t.Fatalf("Nudge = %q, want empty", cfg.Nudge)
+	}
+	if cfg.AcceptStartupDialogs == nil || *cfg.AcceptStartupDialogs {
+		t.Fatalf("AcceptStartupDialogs = %v, want false", cfg.AcceptStartupDialogs)
+	}
+	if !reflect.DeepEqual(cfg.ProcessNames, []string{"gc"}) {
+		t.Fatalf("ProcessNames = %v, want [gc]", cfg.ProcessNames)
 	}
 }
 
