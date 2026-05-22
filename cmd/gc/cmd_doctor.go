@@ -159,6 +159,7 @@ func doDoctor(fix, verbose, jsonOut bool, stdout, stderr io.Writer) int {
 		d.Register(doctor.NewConfigSemanticsCheck(cfg, filepath.Join(cityPath, "city.toml")))
 		d.Register(doctor.NewDurationRangeCheck(cfg))
 		d.Register(doctor.NewProviderParityCheck(cfg))
+		d.Register(doctor.NewFormulaRequirementsCheck(cfg, cityPath))
 		d.Register(doctor.NewInstructionsFileCheck(cfg, cityPath))
 		d.Register(doctor.NewSkillCollisionCheck(cfg, cityPath))
 		d.Register(doctor.NewOrderFiringCurrentCheck(cfg, cityPath))

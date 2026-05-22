@@ -118,6 +118,8 @@ type Formula struct {
 
 	// Source tracks where this formula was loaded from (set by parser).
 	Source string `json:"source,omitempty"`
+
+	compilerRequirementSources []formulaCompilerConstraint
 }
 
 // VarDef defines a template variable with optional validation.
