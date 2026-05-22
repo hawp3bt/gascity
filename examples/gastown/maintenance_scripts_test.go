@@ -336,7 +336,8 @@ func TestOrphanSweepPreservesProtectedInProgressEphemeralMoleculeWisp(t *testing
 		protectedAssignee  string
 		orphanID           string
 		orphanAssignee     string
-		liveSessionName    string
+		// Set only for rows where preservation must come from live sessions.
+		liveSessionName string
 	}{
 		{
 			name:               "hq-reported-shape",
@@ -465,9 +466,11 @@ func TestOrphanSweepPreservesProtectedInProgressEphemeralMoleculeWisp(t *testing
 			if strings.Contains(log, "config show") {
 				t.Fatalf("primary regression must not use config show fallback\n%s", orphanSweepFailureContext(out, gcLog))
 			}
+			// The liveness sandwich must probe before and after bead listing.
 			if got := countExactLine(lines, "session list --json"); got < 2 {
 				t.Fatalf("HQ session probe count = %d, want at least 2\n%s", got, orphanSweepFailureContext(out, gcLog))
 			}
+			// The liveness sandwich must probe before and after bead listing.
 			if got := countExactLine(lines, "--rig project-alpha session list --json"); got < 2 {
 				t.Fatalf("rig session probe count = %d, want at least 2\n%s", got, orphanSweepFailureContext(out, gcLog))
 			}
@@ -498,7 +501,7 @@ func writeStrictOrphanSweepGCStub(t *testing.T, path string) {
 	writeExecutable(t, path, `#!/bin/sh
 printf '%s\n' "$*" >> "$GC_CALL_LOG"
 if [ "$*" = "rig list --json" ]; then
-  printf '{"rigs":[{"name":"hq","hq":true},{"name":"project-alpha","hq":false}]}\n'
+  printf '%s\n' "$ORPHAN_SWEEP_RIG_LIST_JSON"
   exit 0
 fi
 if [ "$*" = "session list --json" ]; then
@@ -603,8 +606,12 @@ func orphanSweepSessionListJSON(t *testing.T, liveSessionNames ...string) string
 	return string(data)
 }
 
-func orphanSweepCleanroomEnv(t *testing.T, root, binDir, gcLog, hqJSON, rigJSON, hqSessionsJSON, rigSessionsJSON, configuredIdentity, orphanID string) []string {
+func orphanSweepCleanroomEnv(t *testing.T, root, binDir, gcLog, hqJSON, rigJSON, hqSessionsJSON, rigSessionsJSON, configuredIdentity, orphanID string, rigListJSON ...string) []string {
 	t.Helper()
+	rigList := `{"rigs":[{"name":"hq","hq":true},{"name":"project-alpha","hq":false}]}`
+	if len(rigListJSON) > 0 {
+		rigList = rigListJSON[0]
+	}
 	dirs := map[string]string{
 		"HOME":              filepath.Join(root, "home"),
 		"XDG_CONFIG_HOME":   filepath.Join(root, "xdg-config"),
@@ -641,6 +648,7 @@ func orphanSweepCleanroomEnv(t *testing.T, root, binDir, gcLog, hqJSON, rigJSON,
 		"GIT_CONFIG_NOSYSTEM=1",
 		"ORPHAN_SWEEP_HQ_JSON=" + hqJSON,
 		"ORPHAN_SWEEP_RIG_JSON=" + rigJSON,
+		"ORPHAN_SWEEP_RIG_LIST_JSON=" + rigList,
 		"ORPHAN_SWEEP_HQ_SESSIONS_JSON=" + hqSessionsJSON,
 		"ORPHAN_SWEEP_RIG_SESSIONS_JSON=" + rigSessionsJSON,
 		"ORPHAN_SWEEP_CONFIGURED_IDENTITY=" + configuredIdentity,
@@ -675,7 +683,28 @@ func nonEmptyLogLines(log string) []string {
 	if log == "" {
 		return nil
 	}
-	return strings.Split(log, "\n")
+	rawLines := strings.Split(log, "\n")
+	lines := make([]string, 0, len(rawLines))
+	for _, line := range rawLines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+func TestNonEmptyLogLinesFiltersInteriorBlankLines(t *testing.T) {
+	got := nonEmptyLogLines("\nalpha\n\n beta \n\t\nomega\n")
+	want := []string{"alpha", " beta ", "omega"}
+	if len(got) != len(want) {
+		t.Fatalf("nonEmptyLogLines() = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("nonEmptyLogLines()[%d] = %q, want %q; full result %#v", i, got[i], want[i], got)
+		}
+	}
 }
 
 func countExactLine(lines []string, want string) int {
@@ -689,73 +718,44 @@ func countExactLine(lines []string, want string) int {
 }
 
 func TestOrphanSweepPreservesLiveEphemeralSessionAssignees(t *testing.T) {
-	cityDir := t.TempDir()
-	binDir := t.TempDir()
-	gcLog := filepath.Join(t.TempDir(), "gc.log")
-
-	writeExecutable(t, filepath.Join(binDir, "gc"), `#!/bin/sh
-printf '%s\n' "$*" >> "$GC_CALL_LOG"
-case "$1" in
-  config)
-    if [ "$2" = "explain" ]; then
-      cat <<'EOF'
-Agent: project/worker
-  source: pack
-EOF
-      exit 0
-    fi
-    ;;
-  rig)
-    if [ "$2" = "list" ] && [ "$3" = "--json" ]; then
-      printf '{"rigs":[{"name":"hq","hq":true}]}\n'
-      exit 0
-    fi
-    ;;
-  session)
-    if [ "$2" = "list" ] && [ "$3" = "--json" ]; then
-      cat <<'EOF'
-{"sessions":[
-  {"id":"mc-live","session_name":"project__worker-gc-abc123","alias":"project/worker-1","agent_name":"project/worker","closed":false},
-  {"id":"mc-closed","session_name":"closed-session","closed":true}
-],"summary":{},"filters":{},"schema_version":"1"}
-EOF
-      exit 0
-    fi
-    ;;
-  bd)
-    if [ "$2" = "list" ]; then
-      cat <<'EOF'
-[
-  {"id":"ga-live","status":"in_progress","assignee":"project__worker-gc-abc123"},
-  {"id":"ga-orphan","status":"in_progress","assignee":"missing-session"}
-]
-EOF
-      exit 0
-    fi
-    if [ "$2" = "update" ]; then
-      exit 0
-    fi
-    ;;
-esac
-exit 1
-`)
-
-	env := map[string]string{
-		"GC_CITY":      cityDir,
-		"GC_CITY_PATH": cityDir,
-		"GC_CALL_LOG":  gcLog,
-		"PATH":         binDir + string(os.PathListSeparator) + os.Getenv("PATH"),
+	root := t.TempDir()
+	binDir := filepath.Join(root, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%s): %v", binDir, err)
 	}
+	linkOrphanSweepCleanroomTools(t, binDir)
+
+	gcLog := filepath.Join(root, "gc.log")
+	if err := os.WriteFile(gcLog, nil, 0o644); err != nil {
+		t.Fatalf("WriteFile(%s): %v", gcLog, err)
+	}
+	fakeGC := filepath.Join(binDir, "gc")
+	writeStrictOrphanSweepGCStub(t, fakeGC)
+
+	env := orphanSweepCleanroomEnv(
+		t,
+		root,
+		binDir,
+		gcLog,
+		orphanSweepProtectedWispBeadsJSON(t, "ga-live", "project__worker-gc-abc123", "ga-orphan", "missing-session"),
+		"[]",
+		orphanSweepSessionListJSON(t, "project__worker-gc-abc123"),
+		orphanSweepSessionListJSON(t),
+		"project/worker",
+		"ga-orphan",
+		`{"rigs":[{"name":"hq","hq":true}]}`,
+	)
+	assertOrphanSweepFakeGC(t, env, filepath.Join(binDir, "bash"), fakeGC, gcLog)
 
 	script := filepath.Join(exampleDir(), "packs", "maintenance", "assets", "scripts", "orphan-sweep.sh")
 	cmd := exec.Command(script)
-	cmd.Env = mergeTestEnv(env)
+	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("%s failed: %v\n%s", filepath.Base(script), err, out)
+		t.Fatalf("%s failed: %v\n%s", filepath.Base(script), err, orphanSweepFailureContext(out, gcLog))
 	}
 	if !strings.Contains(string(out), "orphan-sweep: reset 1 orphaned beads") {
-		t.Fatalf("unexpected orphan-sweep output:\n%s", out)
+		t.Fatalf("unexpected orphan-sweep output:\n%s", orphanSweepFailureContext(out, gcLog))
 	}
 
 	logData, err := os.ReadFile(gcLog)
@@ -763,11 +763,15 @@ exit 1
 		t.Fatalf("ReadFile(gc log): %v", err)
 	}
 	log := string(logData)
-	if !strings.Contains(log, "bd update ga-orphan --status=open --assignee=") {
-		t.Fatalf("orphan bead was not reset:\n%s", log)
+	lines := nonEmptyLogLines(log)
+	if got := countExactLine(lines, "bd update ga-orphan --status=open --assignee="); got != 1 {
+		t.Fatalf("orphan update count = %d, want 1\n%s", got, orphanSweepFailureContext(out, gcLog))
 	}
 	if strings.Contains(log, "bd update ga-live ") {
-		t.Fatalf("live ephemeral session assignee was reset:\n%s", log)
+		t.Fatalf("live ephemeral session assignee was reset:\n%s", orphanSweepFailureContext(out, gcLog))
+	}
+	if strings.Contains(log, "UNEXPECTED:") {
+		t.Fatalf("unexpected fake gc invocation\n%s", orphanSweepFailureContext(out, gcLog))
 	}
 }
 
