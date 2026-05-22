@@ -153,11 +153,13 @@ func doDoctor(fix, verbose, jsonOut bool, stdout, stderr io.Writer) int {
 		}
 		d.Register(doctor.NewConfigValidCheck(cfg))
 		d.Register(doctor.NewConfigRefsCheck(cfg, cityPath))
+		d.Register(doctor.NewStaleLocalPackDirCheck(cfg.Packs, cfg.Imports, cfg.DefaultRigImports, cityPath, cfg.Rigs...))
 		d.Register(doctor.NewPreStartScriptsCheck(cfg))
 		d.Register(doctor.NewBuiltinPackFamilyCheck(cfg, cityPath))
 		d.Register(doctor.NewConfigSemanticsCheck(cfg, filepath.Join(cityPath, "city.toml")))
 		d.Register(doctor.NewDurationRangeCheck(cfg))
 		d.Register(doctor.NewProviderParityCheck(cfg))
+		d.Register(doctor.NewInstructionsFileCheck(cfg, cityPath))
 		d.Register(doctor.NewSkillCollisionCheck(cfg, cityPath))
 		d.Register(doctor.NewOrderFiringCurrentCheck(cfg, cityPath))
 		d.Register(newCodexHooksDriftCheck(codexHookWorkDirs(cityPath, cfg)))

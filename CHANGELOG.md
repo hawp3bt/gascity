@@ -11,10 +11,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `gc mail inbox`, `gc mail read`, `gc mail peek`, `gc mail thread`,
   and `gc mail count` now accept `--json` and emit schema-versioned result
-  envelopes for script and dashboard consumers.
+  envelopes for script and dashboard consumers. `gc mail inbox --json` and
+  `gc mail count --json` always include the resolved `recipients` array,
+  including single-recipient targets.
 
 ### Fixed
 
+- Managed bd provider startup now detects a bd-standalone dolt server running
+  against the same `.beads/dolt` database before invoking the managed-bd
+  lifecycle script, and refuses with a message naming `bd dolt stop` as the
+  unblock. This covers `gc start`, `gc init`, and `gc rig add` provider
+  convergence paths. Previously, running `bd dolt start` while a city was
+  registered at the same path would leave the standalone dolt holding the
+  exclusive write lock; the city-managed dolt could not acquire it and startup
+  failed with a generic "dolt server could not start via gc helper" error that
+  did not point at the lock holder. Stale `.beads/dolt-server.pid` files and
+  live PIDs that do not look like `dolt sql-server` are ignored so leftover
+  files and PID reuse do not block startup.
+- Default bead-backed pool-demand counts now use the same routed target
+  resolution as worker claim queries and exclude epic-routed beads, matching
+  the default worker `work_query` behavior. Custom `scale_check` overrides are
+  unchanged.
 - Empty JSON result collections for `gc mail thread`, `gc trace status`, and
   `gc trace show` now encode as `[]` instead of `null`; `gc trace show` also
   reports a concise no-records message in the default text mode.
@@ -70,6 +87,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `gc converge status --json` returns the convergence metadata object with
+  `ok: true` injected. `gc converge list --json` returns an object with
+  `ok: true` and `entries`. These converge JSON outputs do not include a
+  `schema_version` field.
+- `gc runtime drain-check --json` now emits a JSON result when the target
+  session is not draining, with `ok: true`, `draining: false`, and the
+  existing shell-condition exit code of 1.
 - `gc sling --json` now emits one JSONL result record, matching its checked-in
   result schema; earlier JSON support emitted an indented multi-line object.
 - `gc trace status` and `gc trace show` now default to human-readable output;
@@ -81,6 +105,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `records` instead of a bare record array. See
   `schemas/trace/status/result.schema.json` and
   `schemas/trace/show/result.schema.json` for the exact contracts.
+  During rolling upgrades, trace controller socket status replies include the
+  legacy `arms` alias and upgraded CLIs still accept `arms` from older
+  controllers.
 - Pack import cache validation now requires commit abbreviations in
   `packs.lock` to be at least seven characters long. Shorter abbreviations
   should be refreshed with `gc import install`.

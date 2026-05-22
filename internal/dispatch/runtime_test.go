@@ -6659,9 +6659,7 @@ func TestRunRalphCheckResolvesRelativeWorkDirAgainstCityPath(t *testing.T) {
 	}
 
 	checkPath := filepath.Join(checkDir, "pass.sh")
-	if err := os.WriteFile(checkPath, []byte("#!/usr/bin/env bash\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("write check script: %v", err)
-	}
+	writeExecutableScript(t, checkPath, "#!/usr/bin/env bash\nexit 0\n")
 
 	store := beads.NewMemStore()
 	check := beads.Bead{
@@ -6794,9 +6792,7 @@ func TestRunRalphCheckUsesStorePathForRelativeCheckAndSubjectEnv(t *testing.T) {
 		"printf 'CITY=%s\\n' \"$GC_CITY\"\n" +
 		"printf 'STORE=%s\\n' \"$GC_STORE_PATH\"\n" +
 		"printf 'BEADS=%s\\n' \"$BEADS_DIR\"\n"
-	if err := os.WriteFile(checkPath, []byte(script), 0o755); err != nil {
-		t.Fatalf("write check script: %v", err)
-	}
+	writeExecutableScript(t, checkPath, script)
 
 	store := beads.NewMemStore()
 	check := beads.Bead{
@@ -6855,9 +6851,7 @@ func TestRunRalphCheckRigScopedRelativeCheckPathResolvesAgainstStore(t *testing.
 		t.Fatalf("mkdir: %v", err)
 	}
 	scriptPath := filepath.Join(scriptDir, "check.sh")
-	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("write script: %v", err)
-	}
+	writeExecutableScript(t, scriptPath, "#!/bin/sh\nexit 0\n")
 
 	store := beads.NewMemStore()
 	check := beads.Bead{
@@ -6869,6 +6863,54 @@ func TestRunRalphCheckRigScopedRelativeCheckPathResolvesAgainstStore(t *testing.
 		},
 	}
 	subject := beads.Bead{ID: "run-rig", Type: "task"}
+
+	result, err := runRalphCheck(store, check, subject, 1, ProcessOptions{
+		CityPath:  cityPath,
+		StorePath: storePath,
+	})
+	if err != nil {
+		t.Fatalf("runRalphCheck: %v", err)
+	}
+	if result.Outcome != "pass" {
+		t.Fatalf("Outcome = %q, want pass (stderr=%q)", result.Outcome, result.Stderr)
+	}
+}
+
+// TestRunRalphCheckSiblingStoreRelativeCheckPathResolves pins the
+// gastownhall/gascity#2354 fix: when storePath is a SIBLING of cityPath
+// (neither a subtree of the other), a relative gc.check_path that joins
+// under the store must still resolve. Before the fix, the traversal
+// guard rejected paths under the store because they were outside the
+// city envelope; this is the canonical operator layout where rig and
+// city live as separate directories under $HOME.
+func TestRunRalphCheckSiblingStoreRelativeCheckPathResolves(t *testing.T) {
+	parent := t.TempDir()
+	cityPath := filepath.Join(parent, "city")
+	storePath := filepath.Join(parent, "rig")
+	if err := os.MkdirAll(cityPath, 0o755); err != nil {
+		t.Fatalf("mkdir city: %v", err)
+	}
+	// Script lives under the store at the path runRalphCheck would synthesize
+	// for a pack-shipped check (relative gc.check_path joined against base).
+	scriptDir := filepath.Join(storePath, "assets", "pack", "scripts")
+	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
+		t.Fatalf("mkdir script dir: %v", err)
+	}
+	scriptPath := filepath.Join(scriptDir, "check.sh")
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	store := beads.NewMemStore()
+	check := beads.Bead{
+		ID:   "check-sibling",
+		Type: "task",
+		Metadata: map[string]string{
+			"gc.check_path":    "assets/pack/scripts/check.sh",
+			"gc.check_timeout": "30s",
+		},
+	}
+	subject := beads.Bead{ID: "run-sibling", Type: "task"}
 
 	result, err := runRalphCheck(store, check, subject, 1, ProcessOptions{
 		CityPath:  cityPath,
@@ -6899,9 +6941,7 @@ func TestRunRalphCheckRejectsPathTraversalAboveCityPath(t *testing.T) {
 		t.Fatalf("mkdir outside: %v", err)
 	}
 	outsideScript := filepath.Join(outsideDir, "check.sh")
-	if err := os.WriteFile(outsideScript, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("write script: %v", err)
-	}
+	writeExecutableScript(t, outsideScript, "#!/bin/sh\nexit 0\n")
 
 	store := beads.NewMemStore()
 	check := beads.Bead{
@@ -6933,9 +6973,19 @@ func writeCheckScript(t *testing.T, cityPath, name, contents string) string {
 		t.Fatalf("mkdir script dir: %v", err)
 	}
 	scriptPath := filepath.Join(scriptDir, name)
-	tmp, err := os.CreateTemp(scriptDir, "."+name+".tmp-*")
+	writeExecutableScript(t, scriptPath, contents)
+	return filepath.ToSlash(filepath.Join(".gc", "scripts", name))
+}
+
+func writeExecutableScript(t *testing.T, scriptPath, contents string) {
+	t.Helper()
+	scriptDir := filepath.Dir(scriptPath)
+	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
+		t.Fatalf("mkdir script dir: %v", err)
+	}
+	tmp, err := os.CreateTemp(scriptDir, "."+filepath.Base(scriptPath)+".tmp-*")
 	if err != nil {
-		t.Fatalf("create temp script %s: %v", name, err)
+		t.Fatalf("create temp script %s: %v", scriptPath, err)
 	}
 	tmpPath := tmp.Name()
 	keepTemp := true
@@ -6946,19 +6996,18 @@ func writeCheckScript(t *testing.T, cityPath, name, contents string) string {
 	}()
 	if _, err := tmp.WriteString(contents); err != nil {
 		_ = tmp.Close()
-		t.Fatalf("write %s: %v", name, err)
+		t.Fatalf("write %s: %v", scriptPath, err)
 	}
 	if err := tmp.Close(); err != nil {
-		t.Fatalf("close %s: %v", name, err)
+		t.Fatalf("close %s: %v", scriptPath, err)
 	}
 	if err := os.Chmod(tmpPath, 0o755); err != nil {
-		t.Fatalf("chmod %s: %v", name, err)
+		t.Fatalf("chmod %s: %v", scriptPath, err)
 	}
 	if err := os.Rename(tmpPath, scriptPath); err != nil {
-		t.Fatalf("install %s: %v", name, err)
+		t.Fatalf("install %s: %v", scriptPath, err)
 	}
 	keepTemp = false
-	return filepath.ToSlash(filepath.Join(".gc", "scripts", name))
 }
 
 func newSimpleRalphLoopInStore(t *testing.T, store beads.Store, stepID, checkPath string, maxAttempts int) (beads.Bead, beads.Bead, beads.Bead) {
