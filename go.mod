@@ -17,3 +17,6 @@ require (
 // Note: forked from gastownhall/gascity for personal learning.
 // go.uber.org/atomic is listed here for clarity even though zap v1.27.0
 // no longer strictly requires it (kept for reference during study).
+//
+// TODO: experiment with replacing go-chi/cors with a custom middleware
+// to better understand how CORS headers work under the hood.
